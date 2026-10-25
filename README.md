@@ -112,8 +112,12 @@ bash /etc/install/install.sh /dev/sda
 ```
 
 The installer refuses a disk that already holds partitions unless `--erase` (or
-`install.erase=1`) says so: wiping the wrong disk is the one mistake an
-unattended installer must not be able to make.  It creates a 512 MiB ESP
+`install.erase=1`) says so, and it refuses the medium it booted from: a USB
+stick is usually enumerated before the internal disk, so it is the one that gets
+`/dev/sda`, and "install to sda" would erase the installer itself.  The check
+asks the device rather than the kernel name — transport (`usb`/`sr`), the
+removable flag, and the disk carrying the live root.  `--allow-removable` (or
+`install.allow_removable=1`) overrides it when the target really is a USB disk.  It creates a 512 MiB ESP
 (`nas-esp`) and an ext4 root (`nas-root`), then runs `guix system init` from the
 config and modules baked into the medium.
 

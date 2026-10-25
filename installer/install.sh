@@ -25,15 +25,58 @@ MOUNT=${MOUNT:-/mnt}
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 say() { printf 'install: %s\n' "$*" >&2; }
 
-[ $# -ge 1 ] || die "usage: install.sh [--erase] <disk>   e.g. install.sh /dev/sda"
+[ $# -ge 1 ] || die "usage: install.sh [--erase] [--allow-removable] <disk>"
 
 ERASE=0
-if [ "$1" = "--erase" ]; then ERASE=1; shift; fi
-DISK=$1
+ALLOW_REMOVABLE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --erase) ERASE=1; shift ;;
+    --allow-removable) ALLOW_REMOVABLE=1; shift ;;
+    --) shift; break ;;
+    -*) die "unknown option: $1" ;;
+    *) break ;;
+  esac
+done
+DISK=${1:-}
+[ -n "$DISK" ] || die "usage: install.sh [--erase] [--allow-removable] <disk>"
 
 [ -b "$DISK" ] || die "$DISK is not a block device"
 [ -r "$TARGET_SCM" ] || die "missing target config: $TARGET_SCM"
 [ -d "$MODULES" ] || die "missing module tree: $MODULES"
+
+# --- never install onto the medium we booted from -------------------------
+# A USB stick is usually enumerated BEFORE the internal disk, so it is the one
+# that gets /dev/sda — installing "to sda" would erase the installer itself.
+# The kernel name says nothing about this, so ask the device instead.
+DISK_NAME=$(basename "$(readlink -f "$DISK")")
+
+if [ "$ALLOW_REMOVABLE" -eq 0 ]; then
+  REMOVABLE=$(cat "/sys/block/$DISK_NAME/removable" 2>/dev/null || echo 0)
+  TRANSPORT=$(lsblk -ndo TRAN "/dev/$DISK_NAME" 2>/dev/null | tr -d ' ' || true)
+
+  case "$TRANSPORT" in
+    usb|sr|mmc)
+      die "$DISK is a $TRANSPORT device — that is the installation medium, not a target disk.
+     Pick the internal disk by its device name, or pass --allow-removable if this
+     really is the disk you want to install to." ;;
+  esac
+  if [ "$REMOVABLE" = "1" ]; then
+    die "$DISK reports itself as removable — refuse to install onto the medium.
+     Pass --allow-removable if this really is the target disk."
+  fi
+
+  # Belt and braces: the medium is whatever carries the live root.  When the
+  # root is a squashfs on a partition, that partition's parent must not be the
+  # target.  (On the installer medium ROOT_SRC is not a /dev node; then this
+  # check simply does not apply.)
+  ROOT_SRC=$(findmnt -no SOURCE / 2>/dev/null || true)
+  if [ -n "$ROOT_SRC" ] && [ -b "$ROOT_SRC" ]; then
+    ROOT_PARENT=$(lsblk -no PKNAME "$ROOT_SRC" 2>/dev/null | head -1 | tr -d ' ')
+    [ -n "$ROOT_PARENT" ] && [ "$ROOT_PARENT" = "$DISK_NAME" ] && \
+      die "$DISK carries the running system (medium or live root); refusing"
+  fi
+fi
 
 # Refuse a disk that clearly holds something, unless --erase says otherwise.
 if [ "$ERASE" -eq 0 ]; then
