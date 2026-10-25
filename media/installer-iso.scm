@@ -27,6 +27,12 @@
 
 (define here (dirname (current-filename)))
 
+;; geodata for the proxy packages: evaluating the appliance reads it, and
+;; evaluation happens on the medium, not on the build machine.
+(define geodata-entry
+  (let ((dir (getenv "GUIX_TEMPLATES_GEODATA")))
+    (and dir (list "install/geodata" (local-file dir "geodata" #:recursive? #t)))))
+
 (define target-config
   (local-file (string-append here "/../appliances/nas/target.scm")
               "target.scm"))
