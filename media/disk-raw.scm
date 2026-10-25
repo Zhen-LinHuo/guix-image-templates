@@ -1,9 +1,10 @@
 ;;; media/disk-raw.scm — offline medium: a disk image you write directly.
 ;;;
-;;; For sites with no network at install time: `xzcat` it onto the target disk
-;;; from a rescue system, or restore it with dd.  It carries no installer and
-;;; asks no questions, which is the point — and also the reason the installer
-;;; medium stays the default deliverable: this one bakes one disk layout.
+;;; This is a testing aid, not a deliverable.  Write it onto a disk with dd when
+;;; you want the appliance bootable without running the installer — on a VM, or
+;;; on a machine you are about to wipe anyway.  It bakes one disk layout and
+;;; cannot adapt to anyone else's, which is exactly why the installer medium is
+;;; what ships.
 ;;;
 ;;;   guix system image -t efi-raw -L modules media/disk-raw.scm
 ;;;

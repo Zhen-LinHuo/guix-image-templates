@@ -49,8 +49,9 @@ Two axes, because "which appliance" and "which medium" are separate decisions:
   installs unattended when the kernel command line names a disk.
 - `media/disk-qcow2.scm` — development medium: a throwaway VM of the same
   appliance, for testing before hardware exists.
-- `media/disk-raw.scm` — offline medium: a disk image written directly, for
-  sites with no network at install time.
+- `media/disk-raw.scm` — a disk image for testing, not a deliverable: written
+  directly, useful when you want the appliance on a disk without running the
+  installer.
 - `installer/` — what the ISO runs: partition, format, `guix system init`,
   bootloader.
 
@@ -89,8 +90,8 @@ guix system image -t iso9660 -L modules media/installer-iso.scm
 # development: the same appliance as a VM
 guix system image -t qcow2 -L modules media/disk-qcow2.scm
 
-# offline sites: a disk image to write directly
-guix system image -t raw -L modules media/disk-raw.scm
+# a disk image for testing (not a deliverable)
+guix system image -t efi-raw --image-size=8G -L modules media/disk-raw.scm
 ```
 
 `-L modules` is what makes `(templates …)` importable without adding this
