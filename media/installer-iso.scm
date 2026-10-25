@@ -19,6 +19,8 @@
              (gnu services)
              (gnu services base)
              (gnu services shepherd)
+             (gnu services ssh)
+             (srfi srfi-1)          ; remove
              (guix gexp)
              (gnu packages bash)
              (templates appliances nas))   ; pulls the appliance closure in too
@@ -50,8 +52,10 @@
             (tty "ttyS0")
             (baud-rate "115200")
             (term "vt100")
-            ;; Guix's agetty takes a list of logins to try, not a boolean.
-            (auto-login '("root")))))
+            ;; A string, not a list: the record comment says "list of strings",
+            ;; but the service expands (list "--autologin" auto-login), so a list
+            ;; produces a nested argument and agetty never starts.
+            (auto-login "root"))))
 
 (define auto-install-service
   (simple-service
@@ -73,13 +77,27 @@
   (inherit installation-os)
   (host-name "installer")
   (kernel-arguments
-   ;; random.trust_cpu=on: the live system generates ssh host keys during boot,
-   ;; and without a trusted entropy source that blocks for minutes inside a VM
-   ;; (or on a board with no RTC-backed seed).  Harmless where RDRAND is absent.
-   (cons* "console=ttyS0" "random.trust_cpu=on"
-          (operating-system-user-kernel-arguments installation-os)))
+   (cons "console=ttyS0"
+         (operating-system-user-kernel-arguments installation-os)))
   (services
-   (append (operating-system-user-services installation-os)
+   (append
+           (modify-services
+               ;; No substitute signing key on the medium.  Activation runs
+               ;; `guix archive --generate-key' before udev, and that call blocks
+               ;; on getrandom() until the CRNG is initialised — in a VM it never
+               ;; is, so the installer hung at "gathering entropy" and never
+               ;; reached the console.  An installer publishes no substitutes.
+               ;;
+               ;; No sshd either: the medium is driven over the serial console,
+               ;; and a daemon that answers with an auto-login root is only ever
+               ;; reachable by the wrong people.
+               (remove (lambda (service)
+                         (eq? (service-kind service) openssh-service-type))
+                       (operating-system-user-services installation-os))
+             (guix-service-type config =>
+                                (guix-configuration
+                                 (inherit config)
+                                 (generate-substitute-key? #f))))
            (list
             (simple-service 'installer-payload etc-service-type
                             (list `("install/target.scm" ,target-config)
