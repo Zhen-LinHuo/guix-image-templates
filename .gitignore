@@ -1,0 +1,15 @@
+# Guix build outputs
+/result
+/result-*
+
+# A real host entry carries site facts and a credential hash; only the
+# *.example template is tracked.  Copy it, do not commit the copy.
+/systems/*.scm
+!/systems/*.scm.example
+
+# Geodata is fetched per build host, not committed (large, changes often)
+/geodata/
+
+# Local scratch
+.env
+*.tmp
