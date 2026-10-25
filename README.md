@@ -34,6 +34,29 @@ connectivity service and accept no liability for misuse or for any loss arising
 from the use of this software, which is offered as-is without warranty, as set
 out in the licence below.
 
+## Repository layout
+
+Two axes, because "which appliance" and "which medium" are separate decisions:
+
+- `modules/templates/` — the channel: packages, services, and the appliance
+  constructors.
+- `modules/templates/appliances/nas.scm` — the NAS appliance itself,
+  parameterised by medium (root device, bootloader, boot targets).
+- `appliances/nas/target.scm` — the system that ends up on the disk: filesystem
+  labels, ESP, GRUB EFI.
+- `appliances/router/` — where the router appliance goes; empty on purpose.
+- `media/installer-iso.scm` — **the deliverable**: an installation ISO that
+  installs unattended when the kernel command line names a disk.
+- `media/disk-qcow2.scm` — development medium: a throwaway VM of the same
+  appliance, for testing before hardware exists.
+- `media/disk-raw.scm` — offline medium: a disk image written directly, for
+  sites with no network at install time.
+- `installer/` — what the ISO runs: partition, format, `guix system init`,
+  bootloader.
+
+Every medium builds the same appliance from the same constructor, so the system
+you tested in a VM is the system the installer writes to hardware.
+
 ## What you get
 
 | Piece | Module | What it does |
@@ -42,58 +65,75 @@ out in the licence below.
 | Overlay clients | `(templates packages sdwan)` | `netbird`, `easytier` (static releases); `zerotier` comes from nonguix |
 | Egress plane | `(templates services egress)` | dnsmasq → mihomo → dnsproxy resolver chain, mode switch and geodata timers |
 | Overlay services | `(templates services sdwan)` | shepherd units for the three overlay clients, idle until provisioned |
+| Appliance | `(templates appliances nas)` | the whole NAS system, bound to one medium's devices |
 
 Guix System has no systemd-resolved, so the DNS plane is spelled out with
 shepherd services instead of per-link resolvers; no systemd unit files are
 translated at runtime.
 
-## Build your own image
+## Build a medium
 
 Prerequisites: GNU Guix (with the `nonguix` channel for `zerotier` and the
-standard kernel), network access for the geodata fetch, and `qemu` only if you
-want to smoke-test the image.
+standard kernel) and network access for the geodata fetch.
 
 ```sh
 git clone <this-repo> guix-image-templates
 cd guix-image-templates
 
-# GeoSite/GeoIP are needed at build time and are not committed
+# GeoSite/GeoIP are build inputs and are not committed
 scripts/fetch-geodata.sh
 
-cp systems/nas.scm.example systems/nas.scm
-$EDITOR systems/nas.scm        # the four values below
+# the deliverable: an installation ISO
+guix system image -t iso9660 -L modules media/installer-iso.scm
+
+# development: the same appliance as a VM
+guix system image -t qcow2 -L modules media/disk-qcow2.scm
+
+# offline sites: a disk image to write directly
+guix system image -t raw -L modules media/disk-raw.scm
 ```
 
-Values that are yours to fill:
+`-L modules` is what makes `(templates …)` importable without adding this
+repository as a channel; to use it as a channel instead, add it to
+`~/.config/guix/channels.scm` and `guix pull`.
 
-1. `host-name` and `timezone`/`locale`.
-2. The admin account's password hash — generate it locally:
+### Installing
+
+Boot the ISO and either let it install itself:
+
+```
+install.disk=/dev/sda          # kernel command line; add install.erase=1 to wipe
+```
+
+or run it by hand from the installer console:
+
+```sh
+bash /etc/install/install.sh /dev/sda
+```
+
+The installer refuses a disk that already holds partitions unless `--erase` (or
+`install.erase=1`) says so: wiping the wrong disk is the one mistake an
+unattended installer must not be able to make.  It creates a 512 MiB ESP
+(`nas-esp`) and an ext4 root (`nas-root`), then runs `guix system init` from the
+config and modules baked into the medium.
+
+Values that are yours to fill, in the two files that own them:
+
+1. `host-name`, `timezone`, `locale` — `modules/templates/appliances/nas.scm`.
+2. The admin password hash (both the account and the Webmin `password-crypt`):
 
    ```sh
    openssl passwd -6 -salt "$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')" -stdin
    ```
 
-   The salt must be hex only: a `$` inside it breaks the `$6$salt$hash` layout and the hash can never match.  The same string goes into the Webmin `password-crypt` field so the panel and the console share one credential.
-3. Overlay zones (only if you run an overlay network):
-
-   ```scheme
-   (zones '(("corp.internal" . "10.99.0.1")))
-   ```
-
-   These are how the resolver answers names that only exist inside your overlay; leave `'()` if you have none.
-4. Disk device names in `file-systems` and `swap-devices`.
-
-Then build:
-
-```sh
-guix system image -t qcow2 -L modules systems/nas.scm
-```
-
-`-L modules` is what makes `(templates …)` importable without adding this repository as a channel.  To use it as a channel instead, add it to
-`~/.config/guix/channels.scm` and `guix pull` (the `.guix-channel` file points at `modules/`).
-
-Booting the result: pass `console=ttyS0` if the image is for a headless box, and
-expect the panel on port 10000 once `miniserv` is up.
+   Hex-only salt: a `$` inside it breaks the `$6$salt$hash` layout and the hash
+   can never match.
+3. Overlay zones and the trusted-gateway MAC whitelist — pass them from your own
+   site entry (`appliances/<name>/site.scm`, git-ignored), which wraps the
+   constructor; never from the shared module.
+4. Disk layout — `appliances/nas/target.scm` (labels) and `installer/install.sh`
+   (partition sizes), if your hardware needs something other than 512 MiB ESP
+   plus one root partition.
 
 ## Provisioning at install time, not at build time
 
@@ -110,8 +150,8 @@ Nothing that identifies a tenant is baked into the image:
 - No gateway MAC addresses: the egress mode switch takes a whitelist of gateways
   you own, and that whitelist is empty here — it is a site fact, not a template
   default.
-- No hardware pinning for one machine: `systems/*.example` is a starting point,
-  not a machine inventory.
+- No hardware pinning for one machine: `appliances/*/target.scm` is a starting
+  point, not a machine inventory.
 
 `git grep -nE 'internal|10\.[0-9]+\.|192\.168\.|([0-9a-f]{2}:){5}'` should stay
 short and boring; if it grows, something site-specific has leaked in.

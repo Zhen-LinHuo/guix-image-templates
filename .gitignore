@@ -2,10 +2,10 @@
 /result
 /result-*
 
-# A real host entry carries site facts and a credential hash; only the
-# *.example template is tracked.  Copy it, do not commit the copy.
-/systems/*.scm
-!/systems/*.scm.example
+# A site entry carries the real credential hash and the site facts (overlay
+# zones, gateway MACs).  Only *.example files are tracked: copy one, keep the
+# copy out of git.
+/appliances/*/site.scm
 
 # Geodata is fetched per build host, not committed (large, changes often)
 /geodata/
