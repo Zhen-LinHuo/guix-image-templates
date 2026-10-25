@@ -1,4 +1,4 @@
-;;; media/disk-raw.scm — offline medium: a disk image you write directly.
+;;; media/disk-raw.scm — a disk image you write directly, for testing.
 ;;;
 ;;; This is a testing aid, not a deliverable.  Write it onto a disk with dd when
 ;;; you want the appliance bootable without running the installer — on a VM, or

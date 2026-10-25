@@ -2,7 +2,8 @@
 ;;;
 ;;; This is NOT the deliverable.  It exists so the appliance can be booted and
 ;;; tested without hardware; the shipped medium is media/installer-iso.scm (or
-;;; media/disk-raw.scm for offline flashing).  Both build the SAME appliance
+;;; media/disk-raw.scm for a bootable disk without the installer).  Both are
+;;; testing aids, and both build the SAME appliance
 ;;; from (templates appliances nas) — only the device naming differs, which is
 ;;; the whole point of parameterising it.
 ;;;
