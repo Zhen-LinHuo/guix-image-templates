@@ -1,5 +1,17 @@
 # guix-image-templates
 
+<div align="center">
+
+[![License](https://badgen.net/github/license/Zhen-LinHuo/guix-image-templates)](LICENSE)
+[![GitHub stars](https://badgen.net/github/stars/Zhen-LinHuo/guix-image-templates)](https://github.com/Zhen-LinHuo/guix-image-templates)
+[![Last commit](https://badgen.net/github/last-commit/Zhen-LinHuo/guix-image-templates)](https://github.com/Zhen-LinHuo/guix-image-templates)
+[![Star history](https://api.star-history.com/svg?repos=Zhen-LinHuo/guix-image-templates&type=Date)](https://star-history.com/#Zhen-LinHuo/guix-image-templates&Date)
+
+</div>
+
+Declarative [Guix System](https://guix.gnu.org) image templates for NAS and
+router-class appliances.
+
 Declarative [Guix System](https://guix.gnu.org) templates for appliances that
 are usually configured by hand: a NAS with a web panel, and a router-class box
 with a transparent proxy data plane.  Clone it, fill in the handful of values
