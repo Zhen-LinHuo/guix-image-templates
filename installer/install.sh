@@ -169,6 +169,12 @@ say "installing the system (this copies the store and installs the bootloader)"
 # (a kernel channel, the panel module).  Their sources are baked next to ours,
 # because the installer's own guile does not know those channels: without them
 # evaluation fails with "no code for module (nongnu packages linux)".
+# The appliance's proxy packages read geodata at evaluation time; the copies on
+# the medium are authoritative, so no network fetch is attempted.
+if [ -d /etc/install/geodata ]; then
+  export GUIX_TEMPLATES_GEODATA=/etc/install/geodata
+fi
+
 LOAD_PATH_ARGS=()
 for extra in /etc/install/extra/*; do
   [ -d "$extra" ] && LOAD_PATH_ARGS+=(-L "$extra")

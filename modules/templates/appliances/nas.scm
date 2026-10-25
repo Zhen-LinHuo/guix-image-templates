@@ -30,6 +30,7 @@
   #:use-module (templates packages sdwan)
   #:use-module (webmin-guix services webmin)
   #:export (nas-operating-system
+            nas-target-os
             %nas-packages
             %nas-base-file-systems))
 
@@ -147,3 +148,22 @@ GRUB-EFI on the ESP for hardware."
                  ;; terminated by a reverse proxy in front of Webmin.
                  (password-crypt "$6$CHANGEMEsalthex$REPLACE-with-openssl-passwd-6-output"))))
       %base-services))))
+
+(define* (nas-target-os #:key (host-name "nas"))
+  "Return the system that is installed onto a disk.
+
+Devices are named by filesystem label, not by kernel name: an installed machine
+must survive controller renaming (/dev/sda becomes /dev/sdb when a stick is
+plugged in), and the labels are the ones the installer creates."
+  (nas-operating-system
+   #:host-name host-name
+   #:root-device "/dev/disk/by-label/nas-root"
+   #:root-type "ext4"
+   #:bootloader grub-efi-bootloader
+   #:boot-targets '("/boot/efi")
+   #:extra-file-systems
+   (list (file-system
+           (mount-point "/boot/efi")
+           (device "/dev/disk/by-label/nas-esp")
+           (type "vfat")))
+   #:kernel-arguments '("quiet" "console=ttyS0")))

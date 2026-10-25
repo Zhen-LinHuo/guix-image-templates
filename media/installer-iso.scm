@@ -22,10 +22,43 @@
              (gnu services ssh)
              (srfi srfi-1)          ; remove
              (guix gexp)
+             (guix store)           ; open-connection
+             (guix monads)          ; run-with-store
              (gnu packages bash)
              (templates appliances nas))   ; pulls the appliance closure in too
 
 (define here (dirname (current-filename)))
+
+;; The system the medium installs, evaluated here as well as shipped as a file.
+;; Evaluating it is what lets the image carry its store closure, so the install
+;; needs no network: `guix system init' finds every package already present.
+(define target-os (nas-target-os))
+
+;; Baking the closure multiplies the image size by the size of the appliance;
+;; it is the difference between an offline-capable medium and one that needs
+;; substitutes, so it is opt-in per build.
+(define bake-target-closure? (getenv "GUIX_TEMPLATES_BAKE_TARGET"))
+
+(define target-closure-seed
+  (and bake-target-closure?
+       ;; operating-system-derivation yields a monadic value in this Guix, so it
+       ;; has to be run against a store before it is a derivation we can unquote.
+       (let* ((store (open-connection))
+              (drv (run-with-store store (operating-system-derivation target-os))))
+         (computed-file "target-closure-seed"
+           #~(begin
+               (mkdir #$output)
+               (call-with-output-file (string-append #$output "/system")
+                 ;; Unquoting the derivation makes it an input of this file,
+                 ;; which is what pulls its whole closure into the image.
+                 (lambda (port) (display #$drv port)))
+               #t)))))
+
+;; geodata for the proxy packages: evaluation of the appliance needs it on the
+;; medium too, not just at build time.
+(define geodata-entry
+  (let ((dir (getenv "GUIX_TEMPLATES_GEODATA")))
+    (and dir (list "install/geodata" (local-file dir "geodata" #:recursive? #t)))))
 
 (define target-config
   (local-file (string-append here "/../appliances/nas/target.scm")
@@ -119,10 +152,15 @@
            (list
             (simple-service 'installer-payload etc-service-type
                             (append
-                             (list `("install/target.scm" ,target-config)
+                             (append
+                              (list `("install/target.scm" ,target-config)
                                    `("install/modules" ,channel-modules)
                                    `("install/install.sh" ,install-script)
                                    `("install/auto-install.sh" ,auto-install-script))
-                             extra-module-entries))
+                              (if target-closure-seed
+                                  (list (list "install/target-closure" target-closure-seed))
+                                  '())
+                              (if geodata-entry (list geodata-entry) '())
+                              extra-module-entries)))
             serial-getty-service
             auto-install-service))))
