@@ -36,6 +36,24 @@
 (define channel-modules
   (local-file (string-append here "/../modules") "modules" #:recursive? #t))
 
+;; Extra module trees to bake into the medium, colon-separated.  The appliance
+;; imports modules from channels the installer's own guile does not carry, and
+;; `guix system init' has to evaluate the target config offline.  Set at build
+;; time: GUIX_TEMPLATES_EXTRA_MODULES=/path/to/channel:/other/channel
+(define extra-module-dirs
+  (let ((value (getenv "GUIX_TEMPLATES_EXTRA_MODULES")))
+    (if value
+        (remove string-null? (string-split value #\:))
+        '())))
+
+(define extra-module-entries
+  (map (lambda (dir)
+         ;; Exactly a two-element list, like the entries in installation-os.
+         (list (string-append "install/extra/" (basename dir))
+               (local-file dir (string-append "extra-" (basename dir))
+                           #:recursive? #t)))
+       extra-module-dirs))
+
 (define install-script
   (local-file (string-append here "/../installer/install.sh") "install.sh"))
 
@@ -100,9 +118,11 @@
                                  (generate-substitute-key? #f))))
            (list
             (simple-service 'installer-payload etc-service-type
-                            (list `("install/target.scm" ,target-config)
-                                  `("install/modules" ,channel-modules)
-                                  `("install/install.sh" ,install-script)
-                                  `("install/auto-install.sh" ,auto-install-script)))
+                            (append
+                             (list `("install/target.scm" ,target-config)
+                                   `("install/modules" ,channel-modules)
+                                   `("install/install.sh" ,install-script)
+                                   `("install/auto-install.sh" ,auto-install-script))
+                             extra-module-entries))
             serial-getty-service
             auto-install-service))))

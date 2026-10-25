@@ -51,9 +51,40 @@ DISK=${1:-}
 # before the internal disk, so the medium is often /dev/sda).
 DISK_NAME=$(basename "$(readlink -f "$DISK")")
 
+# Encode a blkid UUID the way Guix writes root= on its installation image:
+# each dash-separated chunk becomes its ASCII bytes in hex ("1970-01-01" ->
+# "31393730-3031-3031").  Comparing in this form avoids having to decode.
+encode_uuid() {
+  local IFS='-' chunk out=()
+  for chunk in $1; do
+    out+=("$(printf '%s' "$chunk" | od -An -tx1 | tr -d ' \n')")
+  done
+  (IFS='-'; printf '%s' "${out[*]}")
+}
+
+# Print the device node the kernel was told to use as root, if it names one.
+root_device_from_cmdline() {
+  local root uuid dev
+  root=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^root=//p' | head -1)
+  [ -n "$root" ] || return 1
+  case "$root" in
+    /dev/*) [ -b "$root" ] && { readlink -f "$root"; return 0; } ;;
+    UUID=*|PARTUUID=*) root=${root#*=} ;;
+  esac
+  for dev in $(lsblk -ndo NAME,TYPE | awk '$2 == "disk" { print "/dev/" $1 }'); do
+    uuid=$(blkid -s UUID -o value "$dev" 2>/dev/null) || continue
+    [ -n "$uuid" ] || continue
+    if [ "$uuid" = "$root" ] || [ "$(encode_uuid "$uuid")" = "$root" ]; then
+      printf '%s\n' "$dev"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Print the name of the disk carrying the running system, or nothing.
 boot_medium_disk() {
-  local probe src parent
+  local probe src parent dev
   for probe in "$(findmnt -no SOURCE / 2>/dev/null)" \
                "$(findmnt -no SOURCE /run/root 2>/dev/null)" \
                "$(findmnt -no SOURCE /run/booted-system 2>/dev/null)" \
@@ -69,28 +100,31 @@ boot_medium_disk() {
     fi
     return 0
   done
-  # Live media whose root is not a block device: fall back to any ISO/squashfs
-  # mount, then to the kernel's root= argument.
   src=$(awk '$3 == "iso9660" || $3 == "squashfs" { print $1; exit }' /proc/mounts)
   if [ -n "$src" ] && [ -b "$src" ]; then
     parent=$(lsblk -no PKNAME "$src" 2>/dev/null | head -1 | tr -d ' ')
     printf '%s\n' "${parent:-$(basename "$(readlink -f "$src")")}"
     return 0
   fi
-  src=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^root=//p' | head -1)
-  case "$src" in
-    /dev/*) [ -b "$src" ] && { lsblk -no PKNAME "$src" 2>/dev/null | head -1 | tr -d ' ' || basename "$src"; } ;;
-  esac
+  # A live medium has no block device behind / (it is an overlay), and the
+  # squashfs is already gone by the time this runs — but the kernel was told
+  # which device to mount, so ask that device instead.
+  dev=$(root_device_from_cmdline) || return 1
+  parent=$(lsblk -no PKNAME "$dev" 2>/dev/null | head -1 | tr -d ' ')
+  printf '%s\n' "${parent:-$(basename "$dev")}"
 }
 
 MEDIUM_DISK=$(boot_medium_disk)
-if [ -n "$MEDIUM_DISK" ] && [ "$MEDIUM_DISK" = "$DISK_NAME" ]; then
+if [ -z "$MEDIUM_DISK" ]; then
+  printf 'install: warning: could not identify the device this system booted from;\n' >&2
+  printf 'install:          %s will be written without that cross-check\n' "$DISK" >&2
+elif [ "$MEDIUM_DISK" = "$DISK_NAME" ]; then
   die "$DISK carries the running installation medium (/dev/$MEDIUM_DISK).
      Refusing to erase the medium itself.  Name the internal data/system disk."
 fi
 
-# Optical media cannot be a target regardless of what it contains.
-if [ "$(lsblk -ndo TRAN "/dev/$DISK_NAME" 2>/dev/null | tr -d ' ')" = "sr" ]; then
+# Optical media cannot be a target: the kernel reports type 5 for CD-ROM/DVD.
+if [ "$(cat "/sys/block/$DISK_NAME/device/type" 2>/dev/null)" = "5" ]; then
   die "$DISK is optical media; pick a writable disk"
 fi
 
@@ -129,7 +163,16 @@ mount "$P1" "$MOUNT/boot/efi"
 say "installing the system (this copies the store and installs the bootloader)"
 # -L makes (templates …) importable from the medium's copy of the channel; the
 # config is absolute because -L resolves modules, not the config path.
-guix system init -L "$MODULES" "$TARGET_SCM" "$MOUNT"
+# The target config imports modules from channels the medium was built with
+# (a kernel channel, the panel module).  Their sources are baked next to ours,
+# because the installer's own guile does not know those channels: without them
+# evaluation fails with "no code for module (nongnu packages linux)".
+LOAD_PATH_ARGS=()
+for extra in /etc/install/extra/*; do
+  [ -d "$extra" ] && LOAD_PATH_ARGS+=(-L "$extra")
+done
+
+guix system init ${LOAD_PATH_ARGS[@]+"${LOAD_PATH_ARGS[@]}"} -L "$MODULES" "$TARGET_SCM" "$MOUNT"
 
 say "installation complete on $DISK; syncing"
 sync
