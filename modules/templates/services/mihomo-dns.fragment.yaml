@@ -1,0 +1,66 @@
+# mihomo DNS + geodata fragment — merge into the subscription config at install
+#
+# This is the file that makes "one component decides domestic vs foreign" true.
+# It is NOT shipped as a working config: node credentials come from the
+# subscription and are injected post-install.  The provisioning step copies this
+# fragment over the subscription's own dns:/geodata keys.
+#
+# Why each choice:
+#   listen 127.0.0.1        — only dnsmasq (image) or resolved (systemd hosts)
+#                             may talk to it; never expose a resolver on the LAN
+#   redir-host              — internal names and overlay addressing behave
+#                             predictably; fake-ip needs a growing filter list
+#   no system:// entry      — the caller already answered overlay zones; adding
+#                             system:// here would create a loop back through the
+#                             caller on every miss
+#   respect-rules: true     — the fallback queries must LEAVE THROUGH THE PROXY,
+#                             otherwise Cloudflare/Quad9 are asked from a CN
+#                             address and answer with the same polluted view we
+#                             are trying to escape
+#   proxy-server-nameserver — resolves the DoH hostnames themselves over a plain
+#                             domestic path, which is what breaks the
+#                             respect-rules circular dependency
+#   geodata-mode: true      — we ship GeoIP.dat; mmdb mode would ignore it
+
+dns:
+  enable: true
+  listen: 127.0.0.1:1053
+  enhanced-mode: redir-host
+  prefer-h3: true
+  ipv6: true
+  use-hosts: false
+  use-system-hosts: false
+  respect-rules: true
+  # Only used to resolve the DoH hostnames below, before any proxy exists.
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  # No h3:// scheme: mihomo rejects it outright ("DNS NameServer[0] unsupport
+  # scheme: h3").  HTTP/3 is requested via prefer-h3 above and negotiated by
+  # the transport when the resolver offers it.
+  nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  nameserver-policy:
+    "geosite:cn":
+      - https://dns.alidns.com/dns-query
+      - https://doh.pub/dns-query
+  fallback:
+    - https://security.cloudflare-dns.com/dns-query
+    - https://dns.quad9.net/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    geosite:
+      - gfw
+  proxy-server-nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+
+# The fleet updater (geo-update-service-type) owns refreshing these files, so
+# mihomo's own updater stays off — two updaters would race and neither reports.
+geo-auto-update: false
+geodata-mode: true
+geox-url:
+  geoip: "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat"
+  geosite: "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat"
