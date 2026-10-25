@@ -17,6 +17,7 @@
 (use-modules (gnu)
              (gnu system install)
              (gnu services)
+             (gnu services base)
              (gnu services shepherd)
              (guix gexp)
              (gnu packages bash)
@@ -39,6 +40,19 @@
 (define auto-install-script
   (local-file (string-append here "/../installer/auto-install.sh") "auto-install.sh"))
 
+;; A serial console with an automatic root login.  Headless appliances are
+;; installed over IPMI/serial, and the verification of this medium needs a
+;; scriptable console — an installer that only answers on tty1 is untestable
+;; without a display.
+(define serial-getty-service
+  (service agetty-service-type
+           (agetty-configuration
+            (tty "ttyS0")
+            (baud-rate "115200")
+            (term "vt100")
+            ;; Guix's agetty takes a list of logins to try, not a boolean.
+            (auto-login '("root")))))
+
 (define auto-install-service
   (simple-service
    'auto-install shepherd-root-service-type
@@ -59,8 +73,11 @@
   (inherit installation-os)
   (host-name "installer")
   (kernel-arguments
-   (cons "console=ttyS0"
-         (operating-system-user-kernel-arguments installation-os)))
+   ;; random.trust_cpu=on: the live system generates ssh host keys during boot,
+   ;; and without a trusted entropy source that blocks for minutes inside a VM
+   ;; (or on a board with no RTC-backed seed).  Harmless where RDRAND is absent.
+   (cons* "console=ttyS0" "random.trust_cpu=on"
+          (operating-system-user-kernel-arguments installation-os)))
   (services
    (append (operating-system-user-services installation-os)
            (list
@@ -69,4 +86,5 @@
                                   `("install/modules" ,channel-modules)
                                   `("install/install.sh" ,install-script)
                                   `("install/auto-install.sh" ,auto-install-script)))
+            serial-getty-service
             auto-install-service))))
