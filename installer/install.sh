@@ -28,11 +28,9 @@ say() { printf 'install: %s\n' "$*" >&2; }
 [ $# -ge 1 ] || die "usage: install.sh [--erase] [--allow-removable] <disk>"
 
 ERASE=0
-ALLOW_REMOVABLE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --erase) ERASE=1; shift ;;
-    --allow-removable) ALLOW_REMOVABLE=1; shift ;;
     --) shift; break ;;
     -*) die "unknown option: $1" ;;
     *) break ;;
@@ -46,36 +44,54 @@ DISK=${1:-}
 [ -d "$MODULES" ] || die "missing module tree: $MODULES"
 
 # --- never install onto the medium we booted from -------------------------
-# A USB stick is usually enumerated BEFORE the internal disk, so it is the one
-# that gets /dev/sda — installing "to sda" would erase the installer itself.
-# The kernel name says nothing about this, so ask the device instead.
+# The one invariant is "the target must not be the disk we are running from".
+# It is deliberately NOT "refuse removable/USB disks": installing the OS on an
+# onboard USB DOM while the SATA bays hold the data disks is a normal NAS layout
+# (and the reason this check exists at all — a USB stick is usually enumerated
+# before the internal disk, so the medium is often /dev/sda).
 DISK_NAME=$(basename "$(readlink -f "$DISK")")
 
-if [ "$ALLOW_REMOVABLE" -eq 0 ]; then
-  REMOVABLE=$(cat "/sys/block/$DISK_NAME/removable" 2>/dev/null || echo 0)
-  TRANSPORT=$(lsblk -ndo TRAN "/dev/$DISK_NAME" 2>/dev/null | tr -d ' ' || true)
-
-  case "$TRANSPORT" in
-    usb|sr|mmc)
-      die "$DISK is a $TRANSPORT device — that is the installation medium, not a target disk.
-     Pick the internal disk by its device name, or pass --allow-removable if this
-     really is the disk you want to install to." ;;
+# Print the name of the disk carrying the running system, or nothing.
+boot_medium_disk() {
+  local probe src parent
+  for probe in "$(findmnt -no SOURCE / 2>/dev/null)" \
+               "$(findmnt -no SOURCE /run/root 2>/dev/null)" \
+               "$(findmnt -no SOURCE /run/booted-system 2>/dev/null)" \
+               "$(findmnt -no SOURCE /gnu/store 2>/dev/null)"; do
+    [ -n "$probe" ] || continue
+    src=${probe%%\[*}
+    [ -b "$src" ] || continue
+    parent=$(lsblk -no PKNAME "$src" 2>/dev/null | head -1 | tr -d ' ')
+    if [ -n "$parent" ]; then
+      printf '%s\n' "$parent"
+    else
+      basename "$(readlink -f "$src")"
+    fi
+    return 0
+  done
+  # Live media whose root is not a block device: fall back to any ISO/squashfs
+  # mount, then to the kernel's root= argument.
+  src=$(awk '$3 == "iso9660" || $3 == "squashfs" { print $1; exit }' /proc/mounts)
+  if [ -n "$src" ] && [ -b "$src" ]; then
+    parent=$(lsblk -no PKNAME "$src" 2>/dev/null | head -1 | tr -d ' ')
+    printf '%s\n' "${parent:-$(basename "$(readlink -f "$src")")}"
+    return 0
+  fi
+  src=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^root=//p' | head -1)
+  case "$src" in
+    /dev/*) [ -b "$src" ] && { lsblk -no PKNAME "$src" 2>/dev/null | head -1 | tr -d ' ' || basename "$src"; } ;;
   esac
-  if [ "$REMOVABLE" = "1" ]; then
-    die "$DISK reports itself as removable — refuse to install onto the medium.
-     Pass --allow-removable if this really is the target disk."
-  fi
+}
 
-  # Belt and braces: the medium is whatever carries the live root.  When the
-  # root is a squashfs on a partition, that partition's parent must not be the
-  # target.  (On the installer medium ROOT_SRC is not a /dev node; then this
-  # check simply does not apply.)
-  ROOT_SRC=$(findmnt -no SOURCE / 2>/dev/null || true)
-  if [ -n "$ROOT_SRC" ] && [ -b "$ROOT_SRC" ]; then
-    ROOT_PARENT=$(lsblk -no PKNAME "$ROOT_SRC" 2>/dev/null | head -1 | tr -d ' ')
-    [ -n "$ROOT_PARENT" ] && [ "$ROOT_PARENT" = "$DISK_NAME" ] && \
-      die "$DISK carries the running system (medium or live root); refusing"
-  fi
+MEDIUM_DISK=$(boot_medium_disk)
+if [ -n "$MEDIUM_DISK" ] && [ "$MEDIUM_DISK" = "$DISK_NAME" ]; then
+  die "$DISK carries the running installation medium (/dev/$MEDIUM_DISK).
+     Refusing to erase the medium itself.  Name the internal data/system disk."
+fi
+
+# Optical media cannot be a target regardless of what it contains.
+if [ "$(lsblk -ndo TRAN "/dev/$DISK_NAME" 2>/dev/null | tr -d ' ')" = "sr" ]; then
+  die "$DISK is optical media; pick a writable disk"
 fi
 
 # Refuse a disk that clearly holds something, unless --erase says otherwise.

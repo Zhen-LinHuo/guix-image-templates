@@ -7,7 +7,6 @@
 #
 #   install.disk=/dev/sda     install to this disk
 #   install.erase=1           wipe a disk that already holds data
-#   install.allow_removable=1 install onto a removable/USB disk on purpose
 #
 # With no install.disk=, the medium stays interactive (the console is yours).
 #
@@ -32,10 +31,8 @@ if [ -z "$disk" ]; then
 fi
 
 erase=$(arg install.erase)
-allow_removable=$(arg install.allow_removable)
 set -- "$disk"
 [ "$erase" = "1" ] && set -- --erase "$disk"
-[ "$allow_removable" = "1" ] && set -- --allow-removable "$@"
 
 printf 'auto-install: installing to %s (erase=%s)\n' "$disk" "${erase:-0}" >&2
 exec /etc/install/install.sh "$@"
