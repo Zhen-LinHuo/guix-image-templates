@@ -1,0 +1,128 @@
+;;; systems/nas.scm.example — the NAS system image (published shape).
+;;; Copy to systems/nas.scm and fill in the site facts marked SITE.
+;;;
+;;; This is the thin per-host entry described in docs/design.md: everything that
+;;; is not host-specific comes from common/ and profiles/, and only the facts
+;;; that genuinely differ per machine appear here.
+;;;
+;;; DNS/egress shape (identical to the systemd fleet, see common/egress-services.scm):
+;;;   dnsmasq answers the overlay zones from their own routers, and forwards
+;;;   everything else to mihomo's resolver, which
+;;;   is the single component deciding domestic-vs-foreign.  dnsproxy sits behind
+;;;   mihomo as the fuse, not in the normal path.
+;;;
+;;; /etc/resolv.conf points at dnsmasq and dhcpcd is told NOT to write it: the
+;;; whole point is that DHCP-supplied resolvers never reach the resolver chain.
+
+(use-modules (gnu)
+             (gnu services)
+             (gnu services networking)
+             (nongnu packages linux)           ; `linux' (standard kernel) lives in nonguix
+             (guix gexp)
+             (templates services egress)
+             (templates services sdwan)
+             (templates packages sdwan)
+             (webmin-guix services webmin))
+
+(use-service-modules networking ssh)
+
+(operating-system
+  (host-name "nas")
+  (timezone "Asia/Shanghai")
+  (locale "en_US.utf8")
+
+  ;; Standard kernel: the hardware here is assorted small-form-factor and
+  ;; industrial boards, where linux-libre's deblobbed tree loses drivers that
+  ;; actually matter (wired NICs, storage controllers).
+  (kernel linux)
+  (kernel-arguments '("quiet" "console=ttyS0"))
+
+  ;; Serial console is how this image is smoke-tested before it has a network.
+  (initrd-modules (cons* "raid456" "raid1" (base-initrd-modules linux)))
+
+  (bootloader (bootloader-configuration
+               (bootloader grub-bootloader)
+               (targets '("/dev/vda"))))
+
+  (file-systems (cons (file-system
+                        (mount-point "/")
+                        (device "/dev/vda1")
+                        (type "btrfs"))
+                      %base-file-systems))
+
+  (users (cons (user-account
+                (name "admin")
+                (group "users")
+                (supplementary-groups '("wheel"))
+                ;; Hash only (crypt-6), replaced during provisioning.  A
+                ;; plaintext default here would land in a world-readable store
+                ;; path.  Provisioning must change it before the host is exposed.
+                (password "$6$CHANGEMEsalthex$REPLACE-with-openssl-passwd-6-output"))
+               %base-user-accounts))
+
+  (packages (append (map specification->package
+                         ;; "zerotier" comes from the nonguix channel; netbird and
+                         ;; easytier are packaged by this repository.
+                         '("mdadm" "smartmontools" "curl" "psmisc" "net-tools"
+                           "zerotier"))
+                    (list netbird easytier)
+                    %base-packages))
+
+  (services
+   (append
+    (list
+     (service openssh-service-type
+              (openssh-configuration
+               (permit-root-login 'prohibit-password)   ; keys only, never passwords
+               (password-authentication? #t)))
+
+     ;; dhcpcd would otherwise overwrite /etc/resolv.conf with the DHCP-supplied
+     ;; resolvers — exactly the thing this design exists to keep out.
+     (service dhcpcd-service-type
+              (dhcpcd-configuration
+               (command-arguments '("-C" "resolv.conf"))))
+
+     ;; The resolver the rest of the system talks to.
+     (simple-service 'nas-resolv-conf etc-service-type
+                     (list `("resolv.conf"
+                             ,(plain-file "resolv.conf"
+                                          "nameserver 127.0.0.1\noptions edns0 trust-ad\n"))))
+
+     ;; SD-WAN transports, strongest first.  Every unit idles until
+    ;; scripts/sdwan-join.sh writes /etc/sdwan/*; nothing here carries a
+    ;; membership credential, so the image stays tenant-neutral.
+    (service zerotier-service-type)
+    (service netbird-service-type)
+    (service easytier-service-type)
+
+    (service mihomo-service-type
+              (mihomo-configuration
+               (config-directory "/var/lib/mihomo")))
+     (service dnsproxy-service-type)          ; fuse behind mihomo
+     ;;; Credential red line: no real password hash belongs in this file.  Generate
+;;; one locally and paste it into your copy:
+;;;   openssl passwd -6 -salt "$(head -c8 /dev/urandom | od -An -tx1 | tr -d ' \n')" -stdin
+;;; (salt must be hex only — a '$' in the salt breaks the $6$salt$hash layout).
+;;; The real host entry (systems/<host>.scm) is git-ignored for this reason.
+;;
+;; Overlay zones are site facts: they live in the host entry, never as
+     ;; defaults inside a shared module (see systems/nas.scm.example for the
+     ;; shape to use in a published copy).
+     (service split-dns-service-type
+              (split-dns-configuration
+               ;; Replace with your own overlay zones, e.g.
+               ;;   (zones '(("corp.internal" . "10.99.0.1")))
+               (zones '())))
+     (service egress-mode-switch-service-type
+              (egress-mode-switch-configuration
+               ;; The transparent-proxy router we own.  Any other gateway means
+               ;; this host must supply its own egress.
+               (trusted-gateway-macs '())))
+     (service geo-update-service-type)        ; 24 h, MetaCubeX, size-guarded
+
+     (service webmin-service-type
+              (webmin-configuration
+               ;; Password hash is set at provisioning; TLS is expected to be
+               ;; terminated by a reverse proxy in front of Webmin.
+               (password-crypt "$6$CHANGEMEsalthex$REPLACE-with-openssl-passwd-6-output"))))
+    %base-services)))
