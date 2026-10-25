@@ -51,15 +51,13 @@ DISK=${1:-}
 # before the internal disk, so the medium is often /dev/sda).
 DISK_NAME=$(basename "$(readlink -f "$DISK")")
 
-# Encode a blkid UUID the way Guix writes root= on its installation image:
-# each dash-separated chunk becomes its ASCII bytes in hex ("1970-01-01" ->
-# "31393730-3031-3031").  Comparing in this form avoids having to decode.
+# Encode a blkid UUID the way Guix writes root= on its installation image: the
+# UUID's ASCII bytes in hex, e.g. "1970010122113383" ->
+# "31393730303130313232313133333833".  Guix keeps a few of the original dashes
+# in that string, so both sides are compared with dashes removed rather than
+# trying to reproduce its exact placement.
 encode_uuid() {
-  local IFS='-' chunk out=()
-  for chunk in $1; do
-    out+=("$(printf '%s' "$chunk" | od -An -tx1 | tr -d ' \n')")
-  done
-  (IFS='-'; printf '%s' "${out[*]}")
+  printf '%s' "${1//-/}" | od -An -tx1 | tr -d ' \n'
 }
 
 # Print the device node the kernel was told to use as root, if it names one.
@@ -71,10 +69,14 @@ root_device_from_cmdline() {
     /dev/*) [ -b "$root" ] && { readlink -f "$root"; return 0; } ;;
     UUID=*|PARTUUID=*) root=${root#*=} ;;
   esac
-  for dev in $(lsblk -ndo NAME,TYPE | awk '$2 == "disk" { print "/dev/" $1 }'); do
+  # Skip floppy/loop pseudo-disks: probing them logs I/O errors and can never
+  # be the medium.
+  # "rom" is in the scan on purpose: booting from a CD means the medium is the
+  # optical drive, and it must be recognised so it can be compared and refused.
+  for dev in $(lsblk -ndo NAME,TYPE | awk '$2 ~ /^(disk|rom)$/ && $1 !~ /^(fd|loop)/ { print "/dev/" $1 }'); do
     uuid=$(blkid -s UUID -o value "$dev" 2>/dev/null) || continue
     [ -n "$uuid" ] || continue
-    if [ "$uuid" = "$root" ] || [ "$(encode_uuid "$uuid")" = "$root" ]; then
+    if [ "$uuid" = "$root" ] || [ "$(encode_uuid "$uuid")" = "${root//-/}" ]; then
       printf '%s\n' "$dev"
       return 0
     fi
@@ -114,7 +116,7 @@ boot_medium_disk() {
   printf '%s\n' "${parent:-$(basename "$dev")}"
 }
 
-MEDIUM_DISK=$(boot_medium_disk)
+MEDIUM_DISK=$(boot_medium_disk) || MEDIUM_DISK=""
 if [ -z "$MEDIUM_DISK" ]; then
   printf 'install: warning: could not identify the device this system booted from;\n' >&2
   printf 'install:          %s will be written without that cross-check\n' "$DISK" >&2
