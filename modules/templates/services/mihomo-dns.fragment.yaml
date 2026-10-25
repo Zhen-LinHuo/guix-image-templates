@@ -1,9 +1,27 @@
-# mihomo DNS + geodata fragment — merge into the subscription config at install
+# mihomo DNS + geodata fragment — merge into the provider profile at install
 #
-# This is the file that makes "one component decides domestic vs foreign" true.
-# It is NOT shipped as a working config: node credentials come from the
-# subscription and are injected post-install.  The provisioning step copies this
-# fragment over the subscription's own dns:/geodata keys.
+# This is the file that makes "one component owns name resolution" true.
+# It is NOT shipped as a working config: upstream credentials come from the
+# provider profile and are injected post-install.  The provisioning step copies
+# this fragment over the profile's own dns:/geodata keys.
+#
+# Why each choice:
+#   listen 127.0.0.1        — only dnsmasq (image) or resolved (systemd hosts)
+#                             may talk to it; never expose a resolver on the LAN
+#   redir-host              — internal names and overlay addressing behave
+#                             predictably; fake-ip needs a growing filter list
+#   no system:// entry      — the caller already answered overlay zones; adding
+#                             system:// here would create a loop back through the
+#                             caller on every miss
+#   respect-rules: true     — fallback queries must leave through the routed
+#                             path, otherwise a remote resolver sees the local
+#                             egress address and answers accordingly
+#   proxy-server-nameserver — resolves the DoH hostnames themselves over a plain
+#                             local path, which is what breaks the
+#                             respect-rules circular dependency
+#   geodata-mode: true      — we ship GeoIP.dat; mmdb mode would ignore it
+
+dns:/geodata keys.
 #
 # Why each choice:
 #   listen 127.0.0.1        — only dnsmasq (image) or resolved (systemd hosts)
@@ -18,7 +36,7 @@
 #                             address and answer with the same polluted view we
 #                             are trying to escape
 #   proxy-server-nameserver — resolves the DoH hostnames themselves over a plain
-#                             domestic path, which is what breaks the
+#                             local path, which is what breaks the
 #                             respect-rules circular dependency
 #   geodata-mode: true      — we ship GeoIP.dat; mmdb mode would ignore it
 
@@ -57,7 +75,7 @@ dns:
     - https://dns.alidns.com/dns-query
     - https://doh.pub/dns-query
 
-# The fleet updater (geo-update-service-type) owns refreshing these files, so
+# The geodata updater (geo-update-service-type) owns refreshing these files, so
 # mihomo's own updater stays off — two updaters would race and neither reports.
 geo-auto-update: false
 geodata-mode: true

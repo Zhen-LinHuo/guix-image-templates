@@ -7,10 +7,9 @@
 ;;; rather than a source build whose Go toolchain would drag a whole bootstrap
 ;;; graph into the closure.  Reproducibility comes from the archive sha256.
 ;;;
-;;; mihomo    — rule-based proxy/tunnel core behind FlClash and the fleet's
-;;;             split routing.
+;;; mihomo    — rule-based proxy/tunnel core with zone-based routing.
 ;;; dnsproxy  — DoH/DoH3 forwarder.  Needed because resolved and unbound only
-;;;             speak DoT, and the fleet wants encrypted DNS over DoH with
+;;;             speak DoT, so this deployment uses encrypted DNS over DoH with
 ;;;             HTTP/3 where the resolver offers it.
 ;;;
 ;;; What does NOT belong here: the OS network stack (services, DNS topology,
@@ -33,7 +32,7 @@
     (source
      (origin
        ;; The `-v1-` asset is the baseline x86-64 build; `-compatible-` targets
-       ;; CPUs older than x86-64-v1 and is slower on every fleet machine, while
+       ;; CPUs older than x86-64-v1 and is slower on the appliances this targets, while
        ;; the unqualified asset is tuned to the builder's CPU and can SIGILL
        ;; elsewhere.  Declared here rather than inferred from uname.
        (method url-fetch)
@@ -66,7 +65,7 @@
      "Mihomo is a proxy core that routes traffic by rule: domain suffixes, IP
 ranges, process names and geo databases feed policy groups, and the daemon
 supplies a mixed HTTP/SOCKS listener plus an external controller API.  It is
-the engine behind FlClash and the fleet's split-routing design.
+the engine that performs the zone-based routing in this template.
 
 Packaged from the upstream static release: no DNS or compiler work is required,
 and the sha256 above is what pins behaviour.")
@@ -123,7 +122,7 @@ plain DNS on a local address and forwards to upstreams that speak DNS-over-HTTPS
 (HTTP/2 and HTTP/3), DNS-over-QUIC, DNS-over-TLS or DNSCrypt, with response
 caching.
 
-The fleet uses one instance per host as the encrypted upstream for
+One instance per host acts as the encrypted upstream for
 systemd-resolved: resolved keeps authoritative per-link DNS for the SD-WAN
 overlay zones, and every other query is forwarded here so that no plaintext or
 ISP-supplied resolver is ever reached.")
@@ -149,12 +148,13 @@ ISP-supplied resolver is ever reached.")
               "GUIX_TEMPLATES_GEODATA to a directory containing " file ".")))
     path))
 
-;;; Geo data for mihomo's own matchers (geosite:cn, geosite:gfw, GEOIP,CN).
+;;; Geo data for mihomo's own matchers (geosite:*, GEOIP,*).
 ;;;
 ;;; mihomo reads these from its working directory and has no offline fallback:
 ;;; with geodata-mode on and no GeoSite.dat, every `geosite:` rule — including
-;;; the DNS policy that decides domestic vs foreign — fails.  Downloading at
-;;; runtime is not an option in CN, so they ship with the image.
+;;; the DNS zone policy — fails.  A runtime download would make the build
+;;; unreproducible and is unavailable on hosts without direct upstream access,
+;;; so the data ships with the image.
 ;;;
 ;;; Source: Loyalsoldier/v2ray-rules-dat, which publishes DATED tags.  The
 ;;; MetaCubeX repository only carries a moving `latest` tag, which would make the
@@ -187,7 +187,7 @@ ISP-supplied resolver is ever reached.")
     (synopsis "GeoSite database for mihomo (dated release)")
     (description
      "GeoSite.dat provides the domain set definitions mihomo matches against
-(geosite:cn, geosite:gfw, geosite:category-ads-all, ...).  Pinned to a dated
+(geosite:cn, geosite:category-ads-all, ...).  Pinned to a dated
 upstream release so the image rebuilds identically; refreshed deliberately by
 bumping @code{version} and the hash together.")
     (license license:cc-by-sa4.0)
@@ -214,8 +214,8 @@ bumping @code{version} and the hash together.")
     (synopsis "GeoIP database for mihomo (dated release)")
     (description
      "GeoIP.dat is what mihomo matches for GEOIP rules when @code{geodata-mode}
-is enabled, and what the DNS fallback filter consults to tell a domestic answer
-from a foreign one.")
+is enabled, and what the DNS fallback filter consults to tell an in-zone answer
+from an out-of-zone one.")
     (license license:cc-by-sa4.0)
     (home-page "https://github.com/Loyalsoldier/v2ray-rules-dat")))
 

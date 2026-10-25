@@ -9,26 +9,49 @@
 
 </div>
 
-Declarative [Guix System](https://guix.gnu.org) image templates for different specific types of machines. e.g. NAS and software routers.
+Declarative [Guix System](https://guix.gnu.org) image templates for different
+specific types of machines, e.g. NAS and software routers.
 
-Declarative [Guix System](https://guix.gnu.org) templates for appliances that are usually configured by hand: a NAS with a web panel, and a router-class box with a transparent proxy data plane.  Clone it, fill in the handful of values that are yours, build an image.
+Templates for appliances that are usually configured by hand: a NAS with a web
+panel, and a software router with an overlay network and a policy-routed egress
+plane.  Clone it, fill in the handful of values that are yours, build an image.
 
-This repository is self-contained.  It has no dependency on any private repository, internal host name or cache, and it ships no credentials — if a file here needs a value that is specific to one deployment, that value is a placeholder.
+This repository is self-contained.  It has no dependency on any private
+repository, internal host name or cache, and it ships no credentials — if a file
+here needs a value that is specific to one deployment, that value is a
+placeholder.
+
+## Intended use
+
+This is infrastructure configuration: it wires publicly available daemons
+(`mihomo`, `dnsproxy`, `netbird`, `easytier`, `zerotier`) into a declarative
+system.  It ships no service, no upstream nodes and no credentials — a built
+image does nothing until an operator provisions a profile on it.
+
+Whoever deploys it is responsible for how it is used and for complying with the
+laws, contracts and network policies that apply to them.  The authors provide no
+connectivity service and accept no liability for misuse or for any loss arising
+from the use of this software, which is offered as-is without warranty, as set
+out in the licence below.
 
 ## What you get
 
 | Piece | Module | What it does |
 |:--|:--|:--|
-| Proxy core | `(templates packages proxy)` | `mihomo` and `dnsproxy` from pinned upstream releases, plus geodata |
+| Routing core | `(templates packages proxy)` | `mihomo` and `dnsproxy` from pinned upstream releases, plus geodata |
 | Overlay clients | `(templates packages sdwan)` | `netbird`, `easytier` (static releases); `zerotier` comes from nonguix |
-| Egress data plane | `(templates services egress)` | dnsmasq → mihomo → dnsproxy DNS chain, mode switch and geodata timers |
+| Egress plane | `(templates services egress)` | dnsmasq → mihomo → dnsproxy resolver chain, mode switch and geodata timers |
 | Overlay services | `(templates services sdwan)` | shepherd units for the three overlay clients, idle until provisioned |
 
-Guix System has no systemd-resolved, so the DNS plane is spelled out with shepherd services instead of per-link resolvers; no systemd unit files are translated at runtime.
+Guix System has no systemd-resolved, so the DNS plane is spelled out with
+shepherd services instead of per-link resolvers; no systemd unit files are
+translated at runtime.
 
 ## Build your own image
 
-Prerequisites: GNU Guix (with the `nonguix` channel for `zerotier` and the standard kernel), network access for the geodata fetch, and `qemu` only if you want to smoke-test the image.
+Prerequisites: GNU Guix (with the `nonguix` channel for `zerotier` and the
+standard kernel), network access for the geodata fetch, and `qemu` only if you
+want to smoke-test the image.
 
 ```sh
 git clone <this-repo> guix-image-templates
@@ -69,7 +92,8 @@ guix system image -t qcow2 -L modules systems/nas.scm
 `-L modules` is what makes `(templates …)` importable without adding this repository as a channel.  To use it as a channel instead, add it to
 `~/.config/guix/channels.scm` and `guix pull` (the `.guix-channel` file points at `modules/`).
 
-Booting the result: pass `console=ttyS0` if the image is for a headless box, and expect the panel on port 10000 once `miniserv` is up.
+Booting the result: pass `console=ttyS0` if the image is for a headless box, and
+expect the panel on port 10000 once `miniserv` is up.
 
 ## Provisioning at install time, not at build time
 
@@ -83,10 +107,14 @@ Nothing that identifies a tenant is baked into the image:
 
 - No internal host names, overlay addresses or substitute-cache URLs.
 - No subscription link, setup key, network id or password hash.
+- No gateway MAC addresses: the egress mode switch takes a whitelist of gateways
+  you own, and that whitelist is empty here — it is a site fact, not a template
+  default.
 - No hardware pinning for one machine: `systems/*.example` is a starting point,
   not a machine inventory.
 
-`git grep -nE 'internal|10\.[0-9]+\.|192\.168\.'` should stay short and boring; if it grows, something site-specific has leaked in.
+`git grep -nE 'internal|10\.[0-9]+\.|192\.168\.|([0-9a-f]{2}:){5}'` should stay
+short and boring; if it grows, something site-specific has leaked in.
 
 ## Licence
 

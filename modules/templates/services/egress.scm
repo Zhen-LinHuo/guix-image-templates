@@ -1,4 +1,4 @@
-;;; Egress data plane services for fleet Guix System systems (host layer).
+;;; Egress data plane services for Guix System (host layer).
 ;;;
 ;;; Design (why these daemons and not systemd-resolved):
 ;;;
@@ -11,12 +11,13 @@
 ;;; This mirrors the systemd hosts exactly: there, resolved answers the overlay
 ;;; zones from per-link routing domains and forwards the rest to mihomo; here
 ;;; dnsmasq answers the same zones from `server=/zone/ip` and forwards the rest
-;;; to mihomo.  ONE component decides domestic-vs-foreign resolution (mihomo,
+;;; to mihomo.  ONE component decides zone-based resolution (mihomo,
 ;;; which owns the geo data and can send queries through the proxy), so the two
 ;;; families cannot give different answers for the same name.
 ;;;
 ;;; dnsproxy is no longer in the resolution chain — it is the fuse: mihomo may
-;;; be absent (bad subscription, boot order, a user closing FlClash on a laptop),
+;;; be absent (an unprovisioned profile, boot order, an operator stopping the
+;;; client),
 ;;; and `strict-order' makes dnsmasq try mihomo first and dnsproxy only when
 ;;; mihomo stops answering.
 ;;;
@@ -237,7 +238,7 @@ when mihomo is unavailable).")))
      "cache-size=1000\n"
      ;; strict-order: try the first server (mihomo) and only then the fuse;
      ;; without it dnsmasq load-balances on responsiveness and would leak half
-     ;; the queries past the domestic/foreign split.
+     ;; the queries past the zone split.
      "strict-order\n"
      (string-join (map (lambda (u) (string-append "server=" u "\n")) ups) "")
      (string-join
@@ -365,8 +366,8 @@ identity of the default gateway.")))
   geo-update-configuration?
   ;; (file-name . url) pairs, refreshed once a day.
   ;;
-  ;; Default source = MetaCubeX meta-rules-dat, which is what the fleet already
-  ;; runs: FlClash ships exactly these geox-url values (geo-update-interval 24,
+  ;; Default source = MetaCubeX meta-rules-dat, which is what the upstream client already
+  ;; runs: the upstream client ships exactly these geox-url values (geo-update-interval 24,
   ;; auto-update off) and the OpenWRT router's mihomo uses the same built-in
   ;; defaults.  Using one source everywhere keeps `geosite:cn` meaning the same
   ;; thing on every host.

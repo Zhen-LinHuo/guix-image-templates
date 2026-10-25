@@ -5,10 +5,10 @@
 ;;; is not host-specific comes from common/ and profiles/, and only the facts
 ;;; that genuinely differ per machine appear here.
 ;;;
-;;; DNS/egress shape (identical to the systemd fleet, see common/egress-services.scm):
+;;; DNS/egress shape:
 ;;;   dnsmasq answers the overlay zones from their own routers, and forwards
 ;;;   everything else to mihomo's resolver, which
-;;;   is the single component deciding domestic-vs-foreign.  dnsproxy sits behind
+;;;   is the single component that decides zone-based resolution.  dnsproxy sits behind
 ;;;   mihomo as the fuse, not in the normal path.
 ;;;
 ;;; /etc/resolv.conf points at dnsmasq and dhcpcd is told NOT to write it: the

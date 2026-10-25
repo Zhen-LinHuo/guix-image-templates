@@ -1,4 +1,4 @@
-;;; Package layer: SD-WAN clients — the three overlay transports the fleet
+;;; Package layer: SD-WAN clients — the three overlay transports this template wire
 ;;; treats as P0/P1/P2 (NetBird → EasyTier → ZeroTier).
 ;;;
 ;;; Layer policy: only what the upstream channels cannot supply lands here.

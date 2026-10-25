@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fleet-dns-setup.sh — uniform encrypted-DNS layout for systemd fleet hosts.
+# dns-setup.sh — uniform encrypted-DNS layout for systemd hosts.
 #
 # Why this shape (and how it differs from the Guix System image):
 #
@@ -24,9 +24,9 @@
 #   names by resolved→dnsproxy.  Never point resolved at mihomo (that is a loop).
 #
 # Usage:
-#   fleet-dns-setup.sh --check                 # read-only report
-#   fleet-dns-setup.sh --apply --binary PATH   # install + configure
-#   fleet-dns-setup.sh --rollback              # restore previous files
+#   dns-setup.sh --check                 # read-only report
+#   dns-setup.sh --apply --binary PATH   # install + configure
+#   dns-setup.sh --rollback              # restore previous files
 #
 # --apply is idempotent and backs up every file it touches as <file>.bak-<ts>.
 
@@ -126,7 +126,7 @@ EOF
   mkdir -p "$DROPIN_DIR"
   [ -f "$DROPIN" ] && cp -a "$DROPIN" "$DROPIN.bak-$TS"
   cat > "$DROPIN" <<EOF
-# Managed by fleet-dns-setup.sh.  DoH lives in dnsproxy; resolved keeps the
+# Managed by dns-setup.sh.  DoH lives in dnsproxy; resolved keeps the
 # per-link overlay zones and only needs to stop using plaintext upstreams.
 [Resolve]
 DNS=127.0.0.1:$PROXY_PORT
