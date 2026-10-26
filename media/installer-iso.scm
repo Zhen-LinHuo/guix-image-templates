@@ -20,6 +20,7 @@
              (gnu services base)
              (gnu services shepherd)
              (gnu services ssh)
+             (templates services substitutes)
              (srfi srfi-1)          ; remove
              (guix gexp)
              (gnu packages bash)
@@ -121,12 +122,22 @@
              (guix-service-type config =>
                                 (guix-configuration
                                  (inherit config)
-                                 (generate-substitute-key? #f))))
+                                 (generate-substitute-key? #f)
+                                 ;; The target system boots the nonguix kernel.
+                                 ;; If this daemon cannot fetch nonguix binaries,
+                                 ;; `guix system init' compiles Linux from
+                                 ;; source on the machine being installed.
+                                 (substitute-urls %appliance-substitute-urls)
+                                 (authorized-keys
+                                  (authorised-substitute-keys)))))
            (list
             (simple-service 'installer-payload etc-service-type
                             (append
                              (append
                               (list `("install/target.scm" ,target-config)
+                                   `("install/substitute-urls"
+                                     ,(plain-file "substitute-urls"
+                                                  (apply string-append (map (lambda (u) (string-append u " ")) %appliance-substitute-urls))))
                                    `("install/modules" ,channel-modules)
                                    `("install/install.sh" ,install-script)
                                    `("install/auto-install.sh" ,auto-install-script))

@@ -180,7 +180,18 @@ for extra in /etc/install/extra/*; do
   [ -d "$extra" ] && LOAD_PATH_ARGS+=(-L "$extra")
 done
 
-guix system init ${LOAD_PATH_ARGS[@]+"${LOAD_PATH_ARGS[@]}"} -L "$MODULES" "$TARGET_SCM" "$MOUNT"
+# Substitutes: the medium carries the list its build was configured with.  The
+# nonguix server has to be in it — the target boots the nonguix kernel, and
+# without a binary for it the install turns into a source build of Linux.
+SUBSTITUTE_ARGS=()
+if [ -r /etc/install/substitute-urls ]; then
+  SUBSTITUTE_ARGS=(--substitute-urls="$(tr -d '\n' < /etc/install/substitute-urls)")
+fi
+
+guix system init --verbosity=1 \
+  ${SUBSTITUTE_ARGS[@]+"${SUBSTITUTE_ARGS[@]}"} \
+  ${LOAD_PATH_ARGS[@]+"${LOAD_PATH_ARGS[@]}"} \
+  -L "$MODULES" "$TARGET_SCM" "$MOUNT"
 
 say "installation complete on $DISK; syncing"
 sync

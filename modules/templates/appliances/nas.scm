@@ -25,6 +25,8 @@
   #:use-module (gnu system file-systems)
   #:use-module (nongnu packages linux)
   #:use-module (guix gexp)
+  #:use-module (gnu services base)
+  #:use-module (templates services substitutes)
   #:use-module (templates services egress)
   #:use-module (templates services sdwan)
   #:use-module (templates packages sdwan)
@@ -101,8 +103,11 @@ GRUB-EFI on the ESP for hardware."
     (packages %nas-packages)
 
     (services
-     (append
-      extra-services
+     ;; Binaries have to come from somewhere that carries the nonguix kernel.
+     ;; Without this the installer builds Linux from source on the target.
+     (modify-services
+       (append
+        extra-services
       (list
        (service openssh-service-type
                 (openssh-configuration
@@ -147,7 +152,12 @@ GRUB-EFI on the ESP for hardware."
                  ;; Hash is set at provisioning; TLS is expected to be
                  ;; terminated by a reverse proxy in front of Webmin.
                  (password-crypt "$6$CHANGEMEsalthex$REPLACE-with-openssl-passwd-6-output"))))
-      %base-services))))
+        %base-services)
+       (guix-service-type config =>
+         (guix-configuration
+          (inherit config)
+          (substitute-urls %appliance-substitute-urls)
+          (authorized-keys (authorised-substitute-keys))))))))
 
 (define* (nas-target-os #:key (host-name "nas"))
   "Return the system that is installed onto a disk.
