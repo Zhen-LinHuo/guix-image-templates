@@ -127,7 +127,7 @@
                                  ;; If this daemon cannot fetch nonguix binaries,
                                  ;; `guix system init' compiles Linux from
                                  ;; source on the machine being installed.
-                                 (substitute-urls %appliance-substitute-urls)
+                                 (substitute-urls (substitute-urls-from-env))
                                  (authorized-keys
                                   (authorised-substitute-keys)))))
            (list
@@ -137,7 +137,7 @@
                               (list `("install/target.scm" ,target-config)
                                    `("install/substitute-urls"
                                      ,(plain-file "substitute-urls"
-                                                  (apply string-append (map (lambda (u) (string-append u " ")) %appliance-substitute-urls))))
+                                                  (apply string-append (map (lambda (u) (string-append u " ")) (substitute-urls-from-env)))))
                                    `("install/modules" ,channel-modules)
                                    `("install/install.sh" ,install-script)
                                    `("install/auto-install.sh" ,auto-install-script))

@@ -19,6 +19,7 @@
   #:use-module (gnu services)
   #:use-module (gnu services base)
   #:export (%appliance-substitute-urls
+            substitute-urls-from-env
             nonguix-signing-key
             authorised-substitute-keys))
 
@@ -34,6 +35,20 @@
 ;; live inside modules/, because that is the tree a medium copies into the store.
 (define nonguix-signing-key
   (local-file "../assets/nonguix-signing-key.pub"))
+
+;; A site that runs its own cache (or sits behind a national firewall where
+;; github.com release assets do not resolve) supplies its URLs at build time:
+;;
+;;   GUIX_TEMPLATES_SUBSTITUTE_URLS="http://cache.example/guix" \
+;;     guix system image -t iso9660 -L modules media/installer-iso.scm
+;;
+;; They go first, the defaults stay behind them: a cache that has the item wins,
+;; one that does not costs a single lookup instead of the whole install.
+(define (substitute-urls-from-env)
+  (let ((extra (getenv "GUIX_TEMPLATES_SUBSTITUTE_URLS")))
+    (if (or (not extra) (string-null? extra))
+        %appliance-substitute-urls
+        (append (string-split extra #\space) %appliance-substitute-urls))))
 
 (define (authorised-substitute-keys)
   "The Guix project's keys plus nonguix's, which is what the URLs above need."

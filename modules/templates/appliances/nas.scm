@@ -58,6 +58,7 @@
                                (boot-targets '("/boot/efi"))
                                (extra-file-systems '())
                                (extra-services '())
+                               (substitute-urls %appliance-substitute-urls)
                                (kernel-arguments '("quiet")))
   "Return the NAS operating system bound to the devices of one medium.
 
@@ -65,7 +66,11 @@ ROOT-DEVICE is how the booted system finds its root; on an installed disk that
 is a filesystem label (stable across controller renames), on a VM image it is
 the partition device the image type actually creates.  BOOTLOADER/BOOT-TARGETS
 are the medium's boot story: GRUB in BIOS mode on /dev/vda for a throwaway VM,
-GRUB-EFI on the ESP for hardware."
+GRUB-EFI on the ESP for hardware.
+
+SUBSTITUTE-URLS defaults to the public list that carries the nonguix kernel; a
+site with its own cache passes its URL first so installs do not depend on
+github.com release assets."
   (operating-system
     (host-name host-name)
     (timezone "Asia/Shanghai")
@@ -156,7 +161,7 @@ GRUB-EFI on the ESP for hardware."
        (guix-service-type config =>
          (guix-configuration
           (inherit config)
-          (substitute-urls %appliance-substitute-urls)
+          (substitute-urls substitute-urls)
           (authorized-keys (authorised-substitute-keys))))))))
 
 (define* (nas-target-os #:key (host-name "nas"))
