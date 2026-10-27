@@ -231,7 +231,9 @@ when mihomo is unavailable).")))
   split-dns-configuration make-split-dns-configuration
   split-dns-configuration?
   (dnsmasq          split-dns-dnsmasq          (default dnsmasq))
-  ;; zone → resolver, e.g. '(("corp.internal" . "10.99.0.1")).
+  ;; zone → resolver, e.g. '(("corp.example" . "192.0.2.1")) — a documentation
+  ;; address on purpose: a concrete one here reads like a site value and trips
+  ;; the pre-push leak scan on every run.
   ;; Intentionally EMPTY by default: overlay domain names and gateway addresses
   ;; are site facts, not design decisions, and baking one site's topology into a
   ;; shared module both breaks every other site and leaks that site's addressing.
