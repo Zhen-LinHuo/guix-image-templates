@@ -143,6 +143,53 @@ Values that are yours to fill, in the two files that own them:
    (partition sizes), if your hardware needs something other than 512 MiB ESP
    plus one root partition.
 
+## Offline first install
+
+The ISO is built to complete an install **without any network access**, which is
+the situation on a fresh NAS: SD-WAN membership, proxy settings and mirrors are
+all things you configure *after* the system exists.
+
+Two properties make that work, and both must hold together:
+
+- the target's store closure is baked into the medium (`GUIX_TEMPLATES_BAKE_TARGET=1`),
+  so `guix system init` copies rather than downloads; the installer says
+  `install: using the closure baked into this medium` when it reuses it, and
+  `the baked closure will not be reused` when the request differs from the bake —
+  the latter means the medium was built differently from the target it installs;
+- the medium and `guix system init` both run with `--no-grafts`, and
+  `GUIX_BUILD_OPTIONS=--no-grafts` is exported so that nested evaluation
+  (`boot.cfg`, activation scripts) inherits it.  Deriving a grafted system needs
+  the *ungrafted* packages built first, and their build outputs are in no runtime
+  closure: offline, that derivation never materialises and the install starts
+  compiling `coreutils` from source.
+
+**The price is stated plainly rather than hidden:** the installed system carries
+un-grafted packages until its first `guix system reconfigure` with network
+access. Grafts are security patches applied to dependents; re-running reconfigure
+on the target, once it has network, brings them in. Do this as part of bringing
+the machine up, not "eventually".
+
+Building the medium needs network (substitute servers, plus any source tarball
+that no binary substitute covers). Binary releases the appliance depends on —
+mihomo, dnsproxy, netbird, EasyTier — are vendored under
+`modules/templates/assets/<tool>/` with a `PROVENANCE` file each, so a build
+never depends on github.com being reachable. That is ~85 MB in the repository;
+it buys a clone that builds without reaching any release page, which is the
+failure mode this project kept hitting.
+
+## Bringing the machine down
+
+Guix System has no `poweroff`: shepherd ships `halt`, `reboot` and `shutdown` in
+`/run/current-system/profile/sbin`, and `halt` is what powers the box off. Use
+
+```sh
+sudo halt        # power off
+sudo reboot      # restart
+```
+
+rather than `poweroff`, which simply does not exist on this system (and whose
+absence looks like a missing package when it is only a different name.
+
 ## Provisioning at install time, not at build time
 
 Nothing that identifies a tenant is baked into the image:

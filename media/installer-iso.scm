@@ -23,10 +23,64 @@
              (templates services substitutes)
              (srfi srfi-1)          ; remove
              (guix gexp)
+             (guix derivations)     ; derivation-file-name
+             (guix store)           ; open-connection
+             (guix monads)          ; run-with-store
              (gnu packages bash)
+             (gnu packages python)
+             (gnu packages bootloaders)
              (templates appliances nas))   ; pulls the appliance closure in too
 
 (define here (dirname (current-filename)))
+
+;; The system the medium installs, evaluated here as well as shipped as a file.
+;; Evaluating it is what lets the image carry its store closure: `guix system
+;; init' then finds every package already present and needs no substitute.
+(define target-os (nas-target-os))
+
+;; Baking multiplies the image size by the size of the appliance.  It is the
+;; difference between a medium that installs at a rack with no network and one
+;; that needs the internet, so it is opt-in per build.
+(define bake-target-closure? (getenv "GUIX_TEMPLATES_BAKE_TARGET"))
+
+;; Extra kernel arguments.  The medium installs by itself when it finds
+;; install.disk= on the command line (see installer/auto-install.sh), so a
+;; medium built for one known machine can be flashed and left alone:
+;;
+;;   GUIX_TEMPLATES_INSTALL_CMDLINE="install.disk=/dev/nvme0n1 install.erase=1"
+;;
+;; Left empty the medium stays interactive, which is what a general-purpose
+;; medium should do — it cannot know which of the disks in the box is the one
+;; you meant.
+(define extra-kernel-arguments
+  (let ((v (getenv "GUIX_TEMPLATES_INSTALL_CMDLINE")))
+    (and v (not (string-null? v)) (string-split v #\space))))
+
+(define baked-system
+  (and bake-target-closure?
+       ;; operating-system-derivation yields a monadic value in this Guix, so it
+       ;; has to be run against a store before it is a derivation we can unquote.
+       (run-with-store (open-connection)
+                       (operating-system-derivation target-os))))
+
+(define target-closure-seed
+  (and baked-system
+       (computed-file "target-closure-seed"
+         #~(begin
+             (mkdir #$output)
+             (call-with-output-file (string-append #$output "/system")
+               ;; Unquoting the derivation makes it an input of this file, which
+               ;; is what pulls its whole closure into the image.
+               (lambda (port) (display #$baked-system port)))
+             #t))))
+
+;; What the medium was baked with, so the installer can say plainly whether the
+;; derivation it computes is the one whose closure is sitting on the disc.
+(define baked-system-record
+  (and baked-system
+       (list "install/baked-system"
+             (plain-file "baked-system.txt"
+                         (string-append (derivation-file-name baked-system) "\n")))))
 
 ;; geodata for the proxy packages: evaluating the appliance reads it, and
 ;; evaluation happens on the medium, not on the build machine.
@@ -102,8 +156,15 @@
   (inherit installation-os)
   (host-name "installer")
   (kernel-arguments
-   (cons "console=ttyS0"
-         (operating-system-user-kernel-arguments installation-os)))
+   (append (list "console=ttyS0")
+           (or extra-kernel-arguments '())
+           (operating-system-user-kernel-arguments installation-os)))
+  ;; Tooling the *installer* needs at install time but that no runtime closure
+  ;; carries: generating grub.cfg shells out to python, and on a medium with no
+  ;; network a missing build input is a dead install.
+  (packages
+   (append (operating-system-packages installation-os)
+           (list python grub grub-efi)))
   (services
    (append
            (modify-services
@@ -142,6 +203,10 @@
                                    `("install/install.sh" ,install-script)
                                    `("install/auto-install.sh" ,auto-install-script))
                               (if geodata-entry (list geodata-entry) '())
-                              extra-module-entries)))
+                              (if baked-system-record (list baked-system-record) '())
+                              extra-module-entries)
+                             (if target-closure-seed
+                                 (list `("install/closure" ,target-closure-seed))
+                                 '())))
             serial-getty-service
             auto-install-service))))

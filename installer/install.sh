@@ -188,7 +188,42 @@ if [ -r /etc/install/substitute-urls ]; then
   SUBSTITUTE_ARGS=(--substitute-urls="$(tr -d '\n' < /etc/install/substitute-urls)")
 fi
 
-guix system init --verbosity=1 \
+# A baked medium carries the target's closure.  Say plainly whether the system
+# this machine derives is the one that was baked — if it is not, the closure on
+# the disc is dead weight and the install will reach for substitutes instead.
+BAKED=$(cat /etc/install/baked-system 2>/dev/null || true)
+if [ -n "$BAKED" ]; then
+  PROBE_ERR=$(mktemp)
+  WANT=$(guix system build --no-grafts -d ${LOAD_PATH_ARGS[@]+"${LOAD_PATH_ARGS[@]}"} \
+           -L "$MODULES" "$TARGET_SCM" 2>"$PROBE_ERR" | tail -1 || true)
+  if [ -z "$WANT" ]; then
+    say "warning: cannot derive the target system; the last lines were:"
+    tail -5 "$PROBE_ERR" | sed 's/^/         /' >&2
+  fi
+  rm -f "$PROBE_ERR"
+  if [ "$WANT" = "$BAKED" ]; then
+    say "using the closure baked into this medium"
+  else
+    say "note: baked system is $BAKED"
+    say "      this machine derives $WANT"
+    say "      the baked closure will not be reused"
+  fi
+fi
+
+# Every derivation this install computes must be computed the same way the
+# medium was built, including the boot config that `init' generates here.  The
+# flag on the command line is not enough: nested evaluations (bootcfg) can still
+# run with grafting on and produce a derivation whose build inputs are not on
+# this medium.  GUIX_BUILD_OPTIONS covers all of them.
+export GUIX_BUILD_OPTIONS="--no-grafts${GUIX_BUILD_OPTIONS:+ $GUIX_BUILD_OPTIONS}"
+
+# --no-grafts, deliberately: computing a grafted derivation requires building
+# the ungrafted packages first, and those build inputs are not part of any
+# runtime closure — on a medium with no network that is the difference between
+# "reuses the baked closure" and "starts compiling coreutils from source".
+# The price is paid once at first `guix pull`/reconfigure, which grafts the
+# installed system normally.
+guix system init --verbosity=1 --no-grafts \
   ${SUBSTITUTE_ARGS[@]+"${SUBSTITUTE_ARGS[@]}"} \
   ${LOAD_PATH_ARGS[@]+"${LOAD_PATH_ARGS[@]}"} \
   -L "$MODULES" "$TARGET_SCM" "$MOUNT"

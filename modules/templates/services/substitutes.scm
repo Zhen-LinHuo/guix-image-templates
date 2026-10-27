@@ -16,6 +16,7 @@
 
 (define-module (templates services substitutes)
   #:use-module (guix gexp)
+  #:use-module (templates packages assets)
   #:use-module (gnu services)
   #:use-module (gnu services base)
   #:export (%appliance-substitute-urls
@@ -31,10 +32,10 @@
     "https://ci.guix.gnu.org"
     "https://bordeaux.guix.gnu.org"))
 
-; Relative to this file, which is how local-file resolves it — and it has to
-;; live inside modules/, because that is the tree a medium copies into the store.
+;; The key lives inside modules/, because that is the tree a medium copies into
+;; the store; (templates packages assets) is how the path is resolved.
 (define nonguix-signing-key
-  (local-file "../assets/nonguix-signing-key.pub"))
+  (vendored-file "nonguix-signing-key.pub"))
 
 ;; A site that runs its own cache (or sits behind a national firewall where
 ;; github.com release assets do not resolve) supplies its URLs at build time:

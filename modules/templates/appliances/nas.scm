@@ -30,6 +30,7 @@
   #:use-module (templates services egress)
   #:use-module (templates services sdwan)
   #:use-module (templates packages sdwan)
+  #:use-module (templates packages tools)
   #:use-module (webmin-guix services webmin)
   #:export (nas-operating-system
             nas-target-os
@@ -43,12 +44,28 @@
   (append (map specification->package
                '("mdadm" "smartmontools" "curl" "psmisc" "net-tools"
                  "zerotier"))
-          (list netbird easytier)
+          ;; glibc-getent: `getent' is the only way to ask the running system
+          ;; what a name resolves to, and Guix keeps glibc off PATH.  One
+          ;; command, not the whole package.
+          (list netbird easytier glibc-getent)
           %base-packages))
 
 ;; File systems every medium shares, minus the root entry (the part that
 ;; differs: /dev/vda1 on a VM, a label on an installed disk).
 (define %nas-base-file-systems %base-file-systems)
+
+(define (root-device* device)
+  "ROOT-DEVICE as a device specification the initrd can wait for.
+
+A plain \"/dev/disk/by-label/NAME\" string is taken literally: the boot-time
+file-system check then opens that path before udev has created the symlink and
+fails with \"possibly non-existent device\".  The label *record* makes Guix wait
+for the device to appear and resolve it, which is what an installed disk needs.
+Device paths such as /dev/sda2 are passed through unchanged."
+  (let ((prefix "/dev/disk/by-label/"))
+    (if (and (string? device) (string-prefix? prefix device))
+        (file-system-label (substring device (string-length prefix)))
+        device)))
 
 (define* (nas-operating-system #:key
                                (host-name "nas")
@@ -90,7 +107,7 @@ github.com release assets."
 
     (file-systems (append (list (file-system
                                   (mount-point "/")
-                                  (device root-device)
+                                  (device (root-device* root-device))
                                   (type root-type)))
                           extra-file-systems
                           %nas-base-file-systems))

@@ -35,4 +35,12 @@ set -- "$disk"
 [ "$erase" = "1" ] && set -- --erase "$disk"
 
 printf 'auto-install: installing to %s (erase=%s)\n' "$disk" "${erase:-0}" >&2
-exec /etc/install/install.sh "$@"
+
+# Mirror progress onto the console: the service's output goes to a log file, and
+# an unattended install that says nothing on the serial line is indistinguishable
+# from one that hung.
+[ -w /dev/console ] && exec > >(tee -a /dev/console) 2>&1
+
+# Via bash, not exec: the script arrives from the store as a plain file with no
+# execute bit, so executing it directly fails with EACCES at the rack.
+exec bash /etc/install/install.sh "$@"

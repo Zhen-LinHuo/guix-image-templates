@@ -41,5 +41,12 @@ done
 check "installer image (iso9660)" \
   guix system image -n -t iso9660 "${load[@]}" "$dir/media/installer-iso.scm"
 
+# Baking the target closure is opt-in, which means the default path above never
+# exercises it — and it broke exactly that way once: a missing import that only
+# the baked build reached.
+check "installer image with the target baked in" \
+  env GUIX_TEMPLATES_BAKE_TARGET=1 \
+  guix system image -n -t iso9660 "${load[@]}" "$dir/media/installer-iso.scm"
+
 [ "$fail" -eq 0 ] && { echo "all entry points evaluate"; exit 0; }
 echo "some entry points do not evaluate"; exit 1
