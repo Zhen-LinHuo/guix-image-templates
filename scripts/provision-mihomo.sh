@@ -84,14 +84,20 @@ restart_mihomo() {
     die "no 'herd' on PATH: this script expects a Guix System host"
   fi
   # A restart that returns 0 is not proof the core came up: wait for the API.
-  for _ in $(seq 1 20); do
+  # 90s, not 20: a real subscription carries thousands of rules, and loading
+  # them — plus GeoIP/GeoSite — outlives a short window. Measured with a
+  # 15 000-rule config: the core was healthy but answered only after ~35s, so a
+  # 20s window reported a failure that never happened.
+  for _ in $(seq 1 60); do
     if curl -fsS -m 2 http://127.0.0.1:9090/version >/dev/null 2>&1; then
       say "mihomo is up (controller answered)"
       return 0
     fi
-    sleep 1
+    sleep 1.5
   done
-  die "mihomo did not answer on the controller after restart; check /var/log/mihomo.log"
+  say "controller silent for 90s; last log lines:"
+  tail -8 /var/log/mihomo.log 2>/dev/null >&2 || true
+  die "mihomo did not answer on the controller after restart"
 }
 
 if [ "$ROLLBACK" -eq 1 ]; then
@@ -148,8 +154,17 @@ trap 'rm -f "$MERGED" "$MERGED.final"' EXIT
 VALID=$(mktemp -d)
 cp "$MERGED" "$VALID/config.yaml"
 # Geo files must be visible to the tester, or every geosite: rule looks broken.
+# A 0-byte one is not "missing" — an unclean shutdown truncates the inode — and
+# validation would then fail on the GEOIP rules with a message that points at
+# the subscription instead of at the disk. Say what actually happened.
 for f in GeoSite.dat GeoIP.dat; do
-  [ -f "$DIR/$f" ] && cp "$DIR/$f" "$VALID/$f"
+  if [ -f "$DIR/$f" ]; then
+    if [ ! -s "$DIR/$f" ]; then
+      rm -rf "$VALID"
+      die "$DIR/$f is empty (truncated by an unclean shutdown?); restart the egress service — 'herd restart mihomo' reseeds it from the store — then re-run this script"
+    fi
+    cp "$DIR/$f" "$VALID/$f"
+  fi
 done
 if ! "$MIHOMO" -t -d "$VALID" -f "$VALID/config.yaml" >/tmp/provision-mihomo-test.log 2>&1; then
   tail -5 /tmp/provision-mihomo-test.log >&2

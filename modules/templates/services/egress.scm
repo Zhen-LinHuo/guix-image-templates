@@ -103,8 +103,19 @@
            (mkdir-p #$dir)
            (for-each (lambda (pair)
                        (let ((target (car pair)) (seed (cdr pair)))
-                         (unless (file-exists? target)
-                           (copy-file seed target))))
+                         ;; A 0-byte file is exactly what an unclean shutdown
+                         ;; leaves behind: the journal replays onto a truncated
+                         ;; inode, so `file-exists?' still says yes while mihomo
+                         ;; then fails on every GEOIP/GEOIP rule at load time.
+                         ;; Treat empty the same as absent and reseed from the
+                         ;; store — this runs before the core is started, so the
+                         ;; repair happens before validation can fail.
+                         (unless (and (file-exists? target)
+                                      (> (vector-ref (stat target) 7) 0))
+                           (copy-file seed target)
+                           ;; The store copy is 0444; geo-update replaces these
+                           ;; at runtime, so leave them writable.
+                           (chmod target #o644))))
                      (list (cons #$(string-append dir "/GeoSite.dat")
                                  #$(file-append geosite "/share/mihomo/GeoSite.dat"))
                            (cons #$(string-append dir "/GeoIP.dat")
@@ -122,8 +133,21 @@
                  (format (current-error-port)
                          "mihomo: no config at ~a/config.yaml; staying idle~%"
                          #$dir)
-                 #f))))
-      (stop #~(make-kill-destructor))))))
+                 ;; Shepherd treats a #f result as "failed to start", which
+                 ;; would leave every freshly installed machine with a failing
+                 ;; unit before it has ever been provisioned.  Return an
+                 ;; explicit sentinel: the service reports itself started with
+                 ;; the value `not-provisioned', which is the truth — started,
+                 ;; with no worker process yet.
+                 'not-provisioned))))
+      ;; The stop procedure sees whatever `start' returned, so it has to cope
+      ;; with the sentinel as well as with a real pid.
+      (stop #~(lambda (running)
+                (when (integer? running)
+                  (catch 'system-error
+                    (lambda () (kill running 15))
+                    (lambda args #t)))
+                #t))))))
 
 (define mihomo-service-type
   (service-type
