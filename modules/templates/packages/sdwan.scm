@@ -6,8 +6,9 @@
 ;;;   netbird   — Go, CGO-free: use the upstream static release (same Route A
 ;;;               as mihomo; a source build would drag the Go toolchain in).
 ;;;   easytier  — Rust: a source build needs cargo + crates.io, neither of
-;;;               which is reachable from the build sandbox here.  Ship the
-;;;               upstream static release and pin it by sha256.
+;;;               which is reachable from the build sandbox here.  Ship a static
+;;;               build of OUR fork, vendored into assets/ so the medium builds
+;;;               without a route to github.com.
 ;;;
 ;;; None of these packages carries configuration.  Overlay membership is
 ;;; *credentials* (setup keys, network ids, shared secrets) and lives in the
@@ -20,20 +21,16 @@
   #:use-module (guix build-system trivial)
   #:use-module (gnu packages base)                ; tar
   #:use-module (gnu packages compression)         ; gzip, unzip
-  #:use-module ((guix licenses) #:prefix license:))
+  #:use-module ((guix licenses) #:prefix license:)
+  #:use-module (templates packages assets))
 
 (define-public netbird
   (package
     (name "netbird")
     (version "0.81.4")
     (source
-     (origin
-       (method url-fetch)
-       (uri (string-append
-             "https://github.com/netbirdio/netbird/releases/download/v"
-             version "/netbird_" version "_linux_amd64.tar.gz"))
-       (sha256
-        (base32 "0rbiwshwfc8kwp0hhwsj3afaidp4iwbcj2ym2cjxqkaqjvixgcz9"))))
+     (vendored-file (string-append
+                     "netbird/netbird_" version "_linux_amd64.tar.gz")))
     (build-system trivial-build-system)
     (arguments
      (list
@@ -68,17 +65,15 @@ and its state live in the host layer.")
     (license license:agpl3)))
 
 (define-public easytier
+  ;; Our fork, not upstream: the MagicDNS and domain handling the appliance
+  ;; needs lives there (assets/easytier/PROVENANCE records the tag and patches).
+  ;; Vendored as a tarball because the medium must build this where github.com
+  ;; is unreachable — a fixed-output download would fail at the rack, not at
+  ;; build time.
   (package
     (name "easytier")
-    (version "2.6.4")
-    (source
-     (origin
-       (method url-fetch)
-       (uri (string-append
-             "https://github.com/EasyTier/EasyTier/releases/download/v"
-             version "/easytier-linux-x86_64-v" version ".zip"))
-       (sha256
-        (base32 "1mnz15y3bd3v8knmz89gs3jpgpbc8bhifzg4dyk8yrdsxpm5kdk1"))))
+    (version "2.7.0-astra.8")
+    (source (vendored-file "easytier/easytier-2.7.0-astra.8-linux-x86_64.tar.gz"))
     (build-system trivial-build-system)
     (arguments
      (list
@@ -86,26 +81,35 @@ and its state live in the host layer.")
       #:builder
       #~(begin
           (use-modules (guix build utils))
-          (let* ((out   (assoc-ref %outputs "out"))
-                 (src   (assoc-ref %build-inputs "source"))
-                 (unzip (string-append (assoc-ref %build-inputs "unzip") "/bin/unzip"))
-                 (work  (string-append out "/extract")))
+          ;; `tar' looks for gzip on PATH, not among its inputs.
+          (setenv "PATH"
+                  (string-append (assoc-ref %build-inputs "gzip") "/bin:"
+                                 (assoc-ref %build-inputs "tar") "/bin:"
+                                 (getenv "PATH")))
+          (let* ((out  (assoc-ref %outputs "out"))
+                 (src  (assoc-ref %build-inputs "source"))
+                 (work (string-append out "/extract")))
             (mkdir-p work)
             (mkdir-p (string-append out "/bin"))
-            (invoke unzip "-q" src "-d" work)
+            (invoke "tar" "xzf" src "-C" work)
             (for-each
              (lambda (b)
-               (let ((f (string-append work "/easytier-linux-x86_64/" b)))
+               (let ((f (string-append work "/" b)))
                  (when (file-exists? f)
                    (install-file f (string-append out "/bin"))
                    (chmod (string-append out "/bin/" b) #o555))))
              '("easytier-core" "easytier-cli"))
+            (install-file (string-append work "/PROVENANCE")
+                          (string-append out "/share/doc/easytier"))
+            (install-file (string-append work "/LICENSE")
+                          (string-append out "/share/doc/easytier"))
             (delete-file-recursively work)))))
-    (native-inputs (list unzip))
-    (home-page "https://easytier.cn")
-    (synopsis "Decentralised mesh VPN client (static release)")
+    (native-inputs (list tar gzip))
+    (home-page "https://github.com/EasyTier/EasyTier")
+    (synopsis "Decentralised mesh VPN client (static build from our fork)")
     (description
      "EasyTier builds a peer-to-peer mesh over TCP/UDP/QUIC/WebSocket with
 WireGuard-based encryption.  This package ships easytier-core and easytier-cli
-from the upstream static release.")
-    (license license:asl2.0)))
+built from the fork tag that carries the MagicDNS and domain-handling fixes the
+appliance relies on; the tarball is vendored so the build needs no network.")
+    (license license:lgpl3)))

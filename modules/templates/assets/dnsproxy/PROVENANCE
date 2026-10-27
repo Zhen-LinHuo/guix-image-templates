@@ -1,0 +1,6 @@
+dnsproxy 0.86.0 — binary release, vendored.
+
+Upstream   https://github.com/AdguardTeam/dnsproxy
+Asset      dnsproxy-linux-amd64-v0.86.0.tar.gz
+Why vendored  same reason as mihomo: no build-time dependency on github.com.
+License    Apache-2.0 (upstream)

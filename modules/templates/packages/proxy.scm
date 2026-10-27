@@ -23,7 +23,8 @@
   #:use-module (guix build-system trivial)
   #:use-module (gnu packages base)               ; tar
   #:use-module (gnu packages compression)        ; gzip
-  #:use-module ((guix licenses) #:prefix license:))
+  #:use-module ((guix licenses) #:prefix license:)
+  #:use-module (templates packages assets))
 
 (define-public mihomo
   (package
@@ -79,13 +80,8 @@ and the sha256 above is what pins behaviour.")
     (name "dnsproxy")
     (version "0.86.0")
     (source
-     (origin
-       (method url-fetch)
-       (uri (string-append
-             "https://github.com/AdguardTeam/dnsproxy/releases/download/v"
-             version "/dnsproxy-linux-amd64-v" version ".tar.gz"))
-       (sha256
-        (base32 "0rpd5hdf5gyk6zyd4hgwns78prkhm8qnygv6giadzkmzdvvl7b0p"))))
+     (vendored-file (string-append
+                     "dnsproxy/dnsproxy-linux-amd64-v" version ".tar.gz")))
     (build-system trivial-build-system)
     (arguments
      (list

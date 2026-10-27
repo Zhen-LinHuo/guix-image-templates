@@ -1,0 +1,8 @@
+mihomo 1.19.33 — binary release, vendored.
+
+Upstream   https://github.com/MetaCubeX/mihomo
+Asset      mihomo-linux-amd64-v1-v1.19.33.gz
+Why vendored  the build must not depend on a route to github.com: a medium is
+           built on hosts without one, and a stalled download halfway through an
+           image build costs more than the 22 MiB this file occupies.
+License    GPL-3.0 (upstream)

@@ -1,0 +1,6 @@
+netbird 0.81.4 — binary release, vendored.
+
+Upstream   https://github.com/netbirdio/netbird
+Asset      netbird_0.81.4_linux_amd64.tar.gz
+Why vendored  same reason as mihomo: no build-time dependency on github.com.
+License    AGPL-3.0 (upstream)

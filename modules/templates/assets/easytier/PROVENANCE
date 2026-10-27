@@ -1,0 +1,25 @@
+EasyTier 2.7.0-astra.8 — provenance
+==================================
+
+These binaries come from our EasyTier fork, not from an upstream release:
+
+    fork      https://github.com/alrcatraz/EasyTier
+    release   https://github.com/alrcatraz/EasyTier/releases/tag/v2.7.0-astra.8-public
+    built     from tag v2.7.0-astra.8 (upstream 2.7.0 plus the patches below)
+    source    tag v2.7.0-astra.8-public — same tree, minus the internal CI
+              configuration, which is not part of the program
+    built     nix, musl static, x86_64
+
+Patches carried in this build:
+
+  * MagicDNS: UDP listener workaround for a self-send deadlock
+  * MagicDNS: resolve without systemd-resolved, via netlink and D-Bus
+    rather than shelling out to ip/resolvectl
+  * TLD DNS zone and its web console page
+
+Upstream is https://github.com/EasyTier/EasyTier — report upstream bugs there,
+not to the fork.
+
+Licence: LGPL-3.0 (see LICENSE alongside this file).  The binaries are
+unmodified except for the patches above; their source is published at the tag
+named here.
