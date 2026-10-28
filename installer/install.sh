@@ -10,7 +10,7 @@
 # wrong disk is the one mistake an unattended installer must not be able to make,
 # so a disk is selected by serial or by path, never "the first one we found".
 #
-#   install.sh /dev/sda                 # BIOS-free: GPT + ESP + ext4 root
+#   install.sh /dev/sda                 # GPT + ESP + the medium's filesystem
 #   install.sh --erase /dev/nvme0n1     # same, for a disk with existing data
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -21,6 +21,18 @@ PATH=/run/current-system/profile/bin:/run/current-system/profile/sbin:$PATH
 TARGET_SCM=${TARGET_SCM:-/etc/install/target.scm}
 MODULES=${MODULES:-/etc/install/modules}
 MOUNT=${MOUNT:-/mnt}
+# The medium is built for one filesystem, and the target config next to it was
+# built for the same one: the value is baked into the image rather than taken
+# from the command line, so a medium cannot be pointed at a layout its target
+# does not expect.
+ROOT_FS=$(cat /etc/install/root-fs 2>/dev/null | tr -d '[:space:]')
+ROOT_FS=${ROOT_FS:-ext4}
+# The target config is evaluated *here*, at install time, and it reads this same
+# variable to decide the root filesystem and whether the initrd needs the btrfs
+# module.  Without exporting it the medium formats btrfs while the system it
+# writes still describes an ext4 root — the machine then installs cleanly and
+# never mounts its own root.
+export GUIX_TEMPLATES_ROOT_FS="$ROOT_FS"
 
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 say() { printf 'install: %s\n' "$*" >&2; }
@@ -137,11 +149,11 @@ if [ "$ERASE" -eq 0 ]; then
   fi
 fi
 
-say "partitioning $DISK (GPT, 512M ESP, ext4 root)"
+say "partitioning $DISK (GPT, 512M ESP, $ROOT_FS root)"
 wipefs -a "$DISK"
 parted -s "$DISK" mklabel gpt \
   mkpart ESP fat32 1MiB 513MiB set 1 esp on \
-  mkpart root ext4 513MiB 100%
+  mkpart root "$ROOT_FS" 513MiB 100%
 
 # Device names for the partitions we just made (sda1 / nvme0n1p1 / vda1).
 case "$DISK" in
@@ -153,12 +165,42 @@ sleep 2
 [ -b "$P1" ] || die "partition $P1 did not appear"
 [ -b "$P2" ] || die "partition $P2 did not appear"
 
-say "formatting: $P1 -> vfat (nas-esp), $P2 -> ext4 (nas-root)"
+say "formatting: $P1 -> vfat (nas-esp), $P2 -> $ROOT_FS (nas-root)"
 mkfs.fat -F32 -n nas-esp "$P1"
-mkfs.ext4 -q -F -L nas-root "$P2"
 
 mkdir -p "$MOUNT"
-mount "$P2" "$MOUNT"
+
+case "$ROOT_FS" in
+  ext4)
+    mkfs.ext4 -q -F -L nas-root "$P2"
+    mount "$P2" "$MOUNT"
+    ;;
+  btrfs)
+    # A plain btrfs filesystem on the device we were given: one subvolume, no
+    # RAID profile.  Redundancy, when it exists, was already built underneath —
+    # mdadm owns arrays, and btrfs parity RAID is not something this medium
+    # creates even on request.
+    mkfs.btrfs -q -f -L nas-root "$P2" || die "mkfs.btrfs failed on $P2"
+    mount "$P2" "$MOUNT" || die "could not mount $P2"
+    btrfs subvolume create "$MOUNT/@" >/dev/null || die "could not create the @ subvolume"
+    # GRUB reads the filesystem's *default* subvolume: with @ merely existing,
+    # it looks at the top level, finds no /gnu/store, and the machine stops at
+    # a bootloader with nothing to load.  Making @ the default is what puts the
+    # system where the bootloader expects it, and it also means a plain mount
+    # without options lands on the system rather than an empty top level.
+    subvol_id=$(btrfs subvolume list "$MOUNT" | awk '$NF == "@" { print $2; exit }')
+    [ -n "$subvol_id" ] || die "could not find the @ subvolume in $(btrfs subvolume list "$MOUNT")"
+    btrfs subvolume set-default "$subvol_id" "$MOUNT" \
+      || die "could not make @ ($subvol_id) the default subvolume"
+    umount "$MOUNT"
+    mount -o "subvol=@,compress=zstd" "$P2" "$MOUNT" \
+      || die "could not mount the @ subvolume"
+    ;;
+  *)
+    die "unsupported root filesystem '$ROOT_FS' (ext4 or btrfs)"
+    ;;
+esac
+
 mkdir -p "$MOUNT/boot/efi"
 mount "$P1" "$MOUNT/boot/efi"
 

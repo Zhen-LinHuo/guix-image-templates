@@ -28,6 +28,8 @@
              (guix monads)          ; run-with-store
              (gnu packages bash)
              (gnu packages python)
+             (gnu packages linux)        ; statics for the initrd built at install time
+             (gnu packages disk)         ; fatfsck/static for the ESP
              (gnu packages bootloaders)
              (templates appliances nas))   ; pulls the appliance closure in too
 
@@ -87,6 +89,14 @@
 (define geodata-entry
   (let ((dir (getenv "GUIX_TEMPLATES_GEODATA")))
     (and dir (list "install/geodata" (local-file dir "geodata" #:recursive? #t)))))
+
+;; The filesystem the installer formats, baked so that the script and the target
+;; config cannot disagree: both are built from the same setting.  The appliance
+;; reads GUIX_TEMPLATES_ROOT_FS itself for the target side.
+(define root-fs-entry
+  (let ((v (getenv "GUIX_TEMPLATES_ROOT_FS")))
+    (list "install/root-fs"
+          (plain-file "root-fs" (string-append (or v "ext4") "\n")))))
 
 (define target-config
   (local-file (string-append here "/../appliances/nas/target.scm")
@@ -164,7 +174,14 @@
   ;; network a missing build input is a dead install.
   (packages
    (append (operating-system-packages installation-os)
-           (list python grub grub-efi)))
+           (list python grub grub-efi btrfs-progs
+                 ;; The target's initrd is built *at install time*, on the
+                 ;; machine being installed, and its static filesystem checkers
+                 ;; are inputs of that derivation.  They have to be in the
+                 ;; medium's store, or `guix system init' starts bootstrapping
+                 ;; glibc from source and dies on the first source tarball it
+                 ;; cannot download.
+                 e2fsck/static btrfs-progs/static fatfsck/static)))
   (services
    (append
            (modify-services
@@ -203,6 +220,7 @@
                                    `("install/install.sh" ,install-script)
                                    `("install/auto-install.sh" ,auto-install-script))
                               (if geodata-entry (list geodata-entry) '())
+                              (list root-fs-entry)
                               (if baked-system-record (list baked-system-record) '())
                               extra-module-entries)
                              (if target-closure-seed

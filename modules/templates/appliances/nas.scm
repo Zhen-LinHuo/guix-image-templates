@@ -34,6 +34,7 @@
   #:use-module (webmin-guix services webmin)
   #:export (nas-operating-system
             nas-target-os
+            %root-fs
             %nas-packages
             %nas-base-file-systems))
 
@@ -41,9 +42,15 @@
   ;; Hardware and panel support that the appliance needs on every medium.
   ;; "zerotier" comes from the nonguix channel; netbird and easytier are
   ;; packaged by this channel.
+  ;;
+  ;; btrfs-progs is here whatever the root filesystem is: the panel's quota
+  ;; module switches to btrfs qgroups the moment it finds the `btrfs' command,
+  ;; and scrub/device-stats are how a btrfs data volume is maintained.  Nothing
+  ;; in this appliance creates a btrfs *array*: mdadm owns redundancy, and a
+  ;; btrfs filesystem is created on whatever device is handed to it.
   (append (map specification->package
                '("mdadm" "smartmontools" "curl" "psmisc" "net-tools"
-                 "zerotier"))
+                 "zerotier" "btrfs-progs"))
           ;; glibc-getent: `getent' is the only way to ask the running system
           ;; what a name resolves to, and Guix keeps glibc off PATH.  One
           ;; command, not the whole package.
@@ -71,6 +78,7 @@ Device paths such as /dev/sda2 are passed through unchanged."
                                (host-name "nas")
                                (root-device "/dev/disk/by-label/nas-root")
                                (root-type "ext4")
+                               (root-options "")
                                (bootloader grub-efi-bootloader)
                                (boot-targets '("/boot/efi"))
                                (extra-file-systems '())
@@ -99,7 +107,12 @@ github.com release assets."
     (kernel linux)
     (kernel-arguments kernel-arguments)
 
-    (initrd-modules (cons* "raid456" "raid1" (base-initrd-modules linux)))
+    ;; The initrd must be able to mount what the installer created.  btrfs is a
+    ;; module in this kernel, so it has to be listed explicitly; raid1/raid456
+    ;; are there for arrays assembled below the filesystem.
+    (initrd-modules (append (if (string=? root-type "btrfs") '("btrfs") '())
+                            (list "raid456" "raid1")
+                            (base-initrd-modules linux)))
 
     (bootloader (bootloader-configuration
                   (bootloader bootloader)
@@ -108,7 +121,8 @@ github.com release assets."
     (file-systems (append (list (file-system
                                   (mount-point "/")
                                   (device (root-device* root-device))
-                                  (type root-type)))
+                                  (type root-type)
+                                  (options root-options)))
                           extra-file-systems
                           %nas-base-file-systems))
 
@@ -181,6 +195,22 @@ github.com release assets."
           (substitute-urls substitute-urls)
           (authorized-keys (authorised-substitute-keys))))))))
 
+;; Filesystem the root partition is created with, chosen at build time.
+;;
+;; ext4 by default; btrfs on request.  The installer creates the same one from
+;; the same setting, so a medium can never format a layout its target does not
+;; expect.
+;;
+;; btrfs is used as a plain filesystem on whatever device it is given: one
+;; subvolume, no RAID profile.  Redundancy is mdadm's job — build the array,
+;; then put the filesystem on the resulting device — which keeps btrfs away
+;; from parity RAID, where it is still the weaker choice.
+(define %root-fs
+  (let ((v (getenv "GUIX_TEMPLATES_ROOT_FS")))
+    (cond ((not v) "ext4")
+          ((member v '("ext4" "btrfs")) v)
+          (else (error "GUIX_TEMPLATES_ROOT_FS must be ext4 or btrfs, got" v)))))
+
 (define* (nas-target-os #:key (host-name "nas"))
   "Return the system that is installed onto a disk.
 
@@ -190,7 +220,17 @@ plugged in), and the labels are the ones the installer creates."
   (nas-operating-system
    #:host-name host-name
    #:root-device "/dev/disk/by-label/nas-root"
-   #:root-type "ext4"
+   #:root-type %root-fs
+   ;; Only btrfs needs mount options to reach its layout: the installer makes a
+   ;; single subvolume named @, so the booted system must be told to use it.
+   ;; btrfs-specific options only.  The initrd hands this string to mount(2)
+   ;; as the filesystem's data argument, and btrfs rejects anything it does not
+   ;; parse itself: "noatime" there fails with "btrfs: Unknown parameter" and
+   ;; the boot stops in an initrd REPL.  VFS-level flags belong in the mount
+   ;; flags, not in this string.
+   #:root-options (if (string=? %root-fs "btrfs")
+                      "subvol=@,compress=zstd"
+                      "")
    #:bootloader grub-efi-bootloader
    #:boot-targets '("/boot/efi")
    #:extra-file-systems

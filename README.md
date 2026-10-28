@@ -129,8 +129,29 @@ system?* — and not "is it removable".  Booting the system from an onboard USB
 DOM while the SATA/SAS bays hold the data disks is a legitimate NAS layout, so
 USB targets are allowed; what is refused is the medium itself, identified by the
 parent of the device that carries the live root.  It creates a 512 MiB ESP
-(`nas-esp`) and an ext4 root (`nas-root`), then runs `guix system init` from the
-config and modules baked into the medium.
+(`nas-esp`) and a root filesystem labelled `nas-root`, then runs
+`guix system init` from the config and modules baked into the medium.
+
+### Filesystem for the root
+
+ext4 by default; btrfs on request, at build time:
+
+```sh
+GUIX_TEMPLATES_ROOT_FS=btrfs guix system image -t iso9660 -L modules \
+  media/installer-iso.scm
+```
+
+The same setting reaches both sides — the script that formats the disk and the
+target config that mounts it — because they are built together; a medium can
+never create a layout its own target does not expect.  btrfs is created as one
+subvolume (`@`) with `compress=zstd,noatime`.
+
+**btrfs is a filesystem here, not an array.**  Parity RAID (5/6) is still the
+weaker option in btrfs, so redundancy stays with mdadm: build the array, then
+put the filesystem on the device it presents.  The medium creates no btrfs RAID
+profile, and `btrfs-progs` ships in the appliance either way — the panel's quota
+module switches to btrfs qgroups when it finds the command, and scrub is how a
+btrfs volume is maintained.
 
 Values that are yours to fill, in the two files that own them:
 
