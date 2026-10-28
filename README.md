@@ -117,6 +117,13 @@ The installer refuses a disk that already holds partitions unless `--erase` (or
 is usually enumerated before the internal disk, so the medium is often
 `/dev/sda`, and "install to sda" would erase the installer itself.
 
+An unattended install ends by powering the machine off, after printing what the
+operator has to do next: pull the medium, fit the storage disks, switch the
+machine back on. Powering off rather than rebooting is deliberate — a machine
+that reboots with the medium still attached boots the installer again, and the
+second run would wipe the disk it just wrote. A *failed* install leaves the live
+system up, shell and logs included, so the failure can be read at the rack.
+
 The judgement is deliberately narrow — *is this the disk carrying the running
 system?* — and not "is it removable".  Booting the system from an onboard USB
 DOM while the SATA/SAS bays hold the data disks is a legitimate NAS layout, so

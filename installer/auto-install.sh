@@ -43,4 +43,33 @@ printf 'auto-install: installing to %s (erase=%s)\n' "$disk" "${erase:-0}" >&2
 
 # Via bash, not exec: the script arrives from the store as a plain file with no
 # execute bit, so executing it directly fails with EACCES at the rack.
-exec bash /etc/install/install.sh "$@"
+#
+# A child process rather than `exec`, because the exit status decides whether
+# this machine powers off: a failed install must leave the live system up.
+# An operator needs the shell and the logs, and a machine that switched itself
+# off after failing is indistinguishable from one that succeeded.
+bash /etc/install/install.sh "$@"
+status=$?
+
+if [ "$status" -ne 0 ]; then
+  printf '\nauto-install: install.sh exited %s — the live system stays up for inspection\n' \
+         "$status" >&2
+  exit "$status"
+fi
+
+cat <<'EOM'
+
+  Installation finished.
+
+    1. Remove the installation medium (USB stick or disc).
+    2. Fit the storage disks this machine is meant to use.
+    3. Power the machine on again — it boots from the installed disk.
+
+  Powering off now.
+EOM
+# Flush the filesystem above all: the medium can be pulled the moment the
+# machine goes dark.
+sync
+# shepherd's halt is the normal path; the syscall route is the fallback for the
+# live profile, which may not carry it.
+halt 2>/dev/null || poweroff 2>/dev/null || printf o > /proc/sysrq-trigger
